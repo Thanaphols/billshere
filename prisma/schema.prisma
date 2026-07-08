@@ -1,0 +1,78 @@
+// Prisma schema for billshere — group bill-split & PromptPay payment app.
+// Tables land in the "public" schema so they show up directly in DBeaver.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DiscountType {
+  NONE
+  FIXED
+  PERCENT
+}
+
+enum PostStatus {
+  OPEN
+  CLOSED
+}
+
+enum PaymentStatus {
+  UNPAID
+  SLIP_UPLOADED
+  PAID
+}
+
+model User {
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  passwordHash    String
+  // PromptPay target (phone number or national ID) used to build the QR.
+  promptpayNumber String?
+  createdAt       DateTime @default(now())
+
+  ownedPosts   Post[]        @relation("PostOwner")
+  participations Participant[]
+}
+
+model Post {
+  id           String       @id @default(cuid())
+  owner        User         @relation("PostOwner", fields: [ownerId], references: [id])
+  ownerId      String
+  title        String
+  note         String?
+  discountType DiscountType @default(NONE)
+  // Baht for FIXED, percent (0-100) for PERCENT, ignored for NONE.
+  discountValue Float       @default(0)
+  status       PostStatus   @default(OPEN)
+  createdAt    DateTime     @default(now())
+
+  participants Participant[]
+
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
+model Participant {
+  id            String        @id @default(cuid())
+  post          Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId        String
+  // The tagged company member who owes this amount.
+  user          User          @relation(fields: [userId], references: [id])
+  userId        String
+  itemName      String
+  price         Float
+  discountShare Float         @default(0)
+  amountToPay   Float         @default(0)
+  paymentStatus PaymentStatus @default(UNPAID)
+  slipImagePath String?
+  paidAt        DateTime?
+
+  @@index([postId])
+  @@index([userId])
+}
