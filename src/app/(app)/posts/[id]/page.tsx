@@ -17,6 +17,7 @@ import StatusBadge from "@/components/StatusBadge";
 import SlipUpload from "@/components/SlipUpload";
 import QrView from "@/components/QrView";
 import SubmitButton from "@/components/SubmitButton";
+import DiscountFields from "@/components/DiscountFields";
 
 export default async function PostDetailPage({
   params,
@@ -201,7 +202,7 @@ export default async function PostDetailPage({
                 min="0"
                 required
                 placeholder="ราคา (บาท)"
-                className="w-full rounded-xl border border-border bg-white px-3 py-3"
+                className="no-spinner w-full rounded-xl border border-border bg-white px-3 py-3"
               />
               <SubmitButton>เพิ่มผู้จ่าย</SubmitButton>
             </form>
@@ -224,25 +225,10 @@ export default async function PostDetailPage({
                 placeholder="โน้ต"
                 className="w-full rounded-xl border border-border bg-white px-3 py-3"
               />
-              <div className="grid grid-cols-2 gap-3">
-                <select
-                  name="discountType"
-                  defaultValue={post.discountType}
-                  className="w-full rounded-xl border border-border bg-white px-3 py-3"
-                >
-                  <option value="NONE">ไม่มี</option>
-                  <option value="FIXED">รวม ÷ เท่ากัน</option>
-                  <option value="PERCENT">เปอร์เซ็นต์</option>
-                </select>
-                <input
-                  name="discountValue"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  defaultValue={post.discountValue}
-                  className="w-full rounded-xl border border-border bg-white px-3 py-3"
-                />
-              </div>
+              <DiscountFields
+                defaultType={post.discountType}
+                defaultValue={post.discountValue}
+              />
               <SubmitButton>บันทึกและคำนวณใหม่</SubmitButton>
             </form>
           </details>

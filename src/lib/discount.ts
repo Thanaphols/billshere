@@ -15,8 +15,8 @@ export type LineResult = {
 /**
  * Compute each participant's discount share and final amount.
  *
- * FIXED   – the total discount (baht) is split equally across all participants,
- *           matching the current spreadsheet workflow (70 / 8 = 8.75 each).
+ * FIXED   – split the WHOLE bill equally: everyone pays the average
+ *           (Σ price / people). Ignores `value`. No per-item discount.
  * PERCENT – each line gets `value`% off its own price.
  * NONE    – no discount.
  *
@@ -30,12 +30,17 @@ export function computeAmounts(
   const count = lines.length;
   if (count === 0) return [];
 
-  return lines.map((line) => {
-    let discountShare = 0;
+  // For "หารเท่ากัน" everyone pays the same share of the whole bill.
+  const total = lines.reduce((s, l) => s + l.price, 0);
+  const equalShare = round2(total / count);
 
+  return lines.map((line) => {
     if (discountType === "FIXED") {
-      discountShare = value / count;
-    } else if (discountType === "PERCENT") {
+      return { discountShare: 0, amountToPay: equalShare };
+    }
+
+    let discountShare = 0;
+    if (discountType === "PERCENT") {
       discountShare = (line.price * value) / 100;
     }
 
@@ -53,7 +58,7 @@ export function round2(n: number): number {
 
 /** Human label for the discount setting. */
 export function discountLabel(type: DiscountType, value: number): string {
-  if (type === "FIXED") return `ส่วนลดรวม ${round2(value)} บาท (หารเท่ากัน)`;
+  if (type === "FIXED") return "หารเท่ากันทั้งบิล (ทุกคนจ่ายเท่ากัน)";
   if (type === "PERCENT") return `ส่วนลด ${round2(value)}%`;
   return "ไม่มีส่วนลด";
 }
