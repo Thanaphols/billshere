@@ -49,6 +49,8 @@ model Post {
   discountType DiscountType @default(NONE)
   // Baht for FIXED, percent (0-100) for PERCENT, ignored for NONE.
   discountValue Float       @default(0)
+  // Total delivery cost for the whole bill, split equally across participants.
+  deliveryFee  Float        @default(0)
   status       PostStatus   @default(OPEN)
   createdAt    DateTime     @default(now())
 
@@ -68,6 +70,7 @@ model Participant {
   itemName      String
   price         Float
   discountShare Float         @default(0)
+  deliveryShare Float         @default(0)
   amountToPay   Float         @default(0)
   paymentStatus PaymentStatus @default(UNPAID)
   slipImagePath String?

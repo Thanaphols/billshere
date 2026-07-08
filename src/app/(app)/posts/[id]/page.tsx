@@ -11,13 +11,16 @@ import {
   markPaid,
   markUnpaid,
   updatePostSettings,
+  updateDeliveryFee,
   togglePostStatus,
 } from "@/actions/posts";
 import StatusBadge from "@/components/StatusBadge";
 import SlipUpload from "@/components/SlipUpload";
 import QrView from "@/components/QrView";
 import SubmitButton from "@/components/SubmitButton";
-import DiscountFields from "@/components/DiscountFields";
+import DiscountSettings from "@/components/DiscountSettings";
+import AddParticipantForm from "@/components/AddParticipantForm";
+import DeliveryFeeForm from "@/components/DeliveryFeeForm";
 
 export default async function PostDetailPage({
   params,
@@ -38,6 +41,7 @@ export default async function PostDetailPage({
 
   const isOwner = post.ownerId === user.id;
   const mine = post.participants.find((p) => p.userId === user.id);
+  const itemTotal = post.participants.reduce((s, p) => s + p.price, 0);
   const total = post.participants.reduce((s, p) => s + p.amountToPay, 0);
   const paidCount = post.participants.filter(
     (p) => p.paymentStatus === "PAID"
@@ -79,6 +83,11 @@ export default async function PostDetailPage({
           <span className="text-muted">{discountLabel(post.discountType, post.discountValue)}</span>
           <span className="font-semibold">รวม {baht(total)}</span>
         </div>
+        <p className="mt-1 text-xs text-muted">
+          ค่าอาหาร {baht(itemTotal)}
+          {post.deliveryFee > 0 ? ` + ค่าส่ง ${baht(post.deliveryFee)}` : ""} ={" "}
+          {baht(itemTotal + post.deliveryFee)}
+        </p>
         <p className="mt-1 text-xs text-muted">
           จ่ายแล้ว {paidCount}/{post.participants.length} คน
         </p>
@@ -128,6 +137,7 @@ export default async function PostDetailPage({
                 <p className="truncate text-xs text-muted">
                   {p.itemName} · ราคา {baht(p.price)}
                   {p.discountShare > 0 ? ` · ลด ${baht(p.discountShare)}` : ""}
+                  {p.deliveryShare > 0 ? ` · ค่าส่ง ${baht(p.deliveryShare)}` : ""}
                 </p>
               </div>
               <div className="text-right">
@@ -174,38 +184,14 @@ export default async function PostDetailPage({
             <summary className="cursor-pointer font-semibold">
               เพิ่มผู้จ่าย (แท็กสมาชิก)
             </summary>
-            <form action={addParticipant.bind(null, post.id)} className="mt-3 space-y-3">
-              <select
-                name="userId"
-                required
-                defaultValue=""
-                className="w-full rounded-xl border border-border bg-white px-3 py-3"
-              >
-                <option value="" disabled>
-                  เลือกสมาชิก…
-                </option>
-                {allUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} ({u.email})
-                  </option>
-                ))}
-              </select>
-              <input
-                name="itemName"
-                placeholder="รายการ เช่น โกโก้เข้มข้น (กลาง)"
-                className="w-full rounded-xl border border-border bg-white px-3 py-3"
-              />
-              <input
-                name="price"
-                type="number"
-                step="0.01"
-                min="0"
-                required
-                placeholder="ราคา (บาท)"
-                className="no-spinner w-full rounded-xl border border-border bg-white px-3 py-3"
-              />
-              <SubmitButton>เพิ่มผู้จ่าย</SubmitButton>
-            </form>
+            <AddParticipantForm
+              action={addParticipant.bind(null, post.id)}
+              users={allUsers}
+              existingPrices={post.participants.map((p) => p.price)}
+              discountType={post.discountType}
+              discountValue={post.discountValue}
+              deliveryFee={post.deliveryFee}
+            />
           </details>
 
           <details className="rounded-2xl bg-surface p-4 shadow-sm">
@@ -225,12 +211,25 @@ export default async function PostDetailPage({
                 placeholder="โน้ต"
                 className="w-full rounded-xl border border-border bg-white px-3 py-3"
               />
-              <DiscountFields
+              <DiscountSettings
                 defaultType={post.discountType}
                 defaultValue={post.discountValue}
+                participants={post.participants.map((p) => ({
+                  name: p.user.name,
+                  price: p.price,
+                }))}
               />
               <SubmitButton>บันทึกและคำนวณใหม่</SubmitButton>
             </form>
+          </details>
+
+          <details className="rounded-2xl bg-surface p-4 shadow-sm">
+            <summary className="cursor-pointer font-semibold">ค่าส่ง</summary>
+            <DeliveryFeeForm
+              action={updateDeliveryFee.bind(null, post.id)}
+              defaultFee={post.deliveryFee}
+              participantCount={post.participants.length}
+            />
           </details>
 
           <form action={togglePostStatus.bind(null, post.id)}>

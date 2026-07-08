@@ -1,6 +1,5 @@
 import { createPost } from "@/actions/posts";
 import SubmitButton from "@/components/SubmitButton";
-import DiscountFields from "@/components/DiscountFields";
 
 export default function NewPostPage() {
   return (
@@ -26,7 +25,9 @@ export default function NewPostPage() {
           />
         </label>
 
-        <DiscountFields />
+        <p className="text-xs text-muted">
+          ตั้งส่วนลด/ค่าส่งได้ทีหลังในหน้าตั้งค่าบิล หลังเพิ่มผู้จ่ายแล้ว
+        </p>
 
         <SubmitButton>สร้างบิล</SubmitButton>
       </form>

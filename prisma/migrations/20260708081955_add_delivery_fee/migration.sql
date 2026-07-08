@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Participant" ADD COLUMN     "deliveryShare" DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+-- AlterTable
+ALTER TABLE "Post" ADD COLUMN     "deliveryFee" DOUBLE PRECISION NOT NULL DEFAULT 0;

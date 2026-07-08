@@ -8,17 +8,21 @@ export type LineInput = {
 export type LineResult = {
   /** How much discount this line receives. */
   discountShare: number;
-  /** Final amount this person pays (price - discountShare). */
-  amountToPay: number;
+  /** Amount owed for the item after discount — does NOT include delivery fee. */
+  itemAmount: number;
 };
 
 /**
- * Compute each participant's discount share and final amount.
+ * Compute each participant's discount share and item amount (pre-delivery-fee).
  *
  * FIXED   – split the WHOLE bill equally: everyone pays the average
  *           (Σ price / people). Ignores `value`. No per-item discount.
  * PERCENT – each line gets `value`% off its own price.
  * NONE    – no discount.
+ *
+ * Pure function — safe to import from both client components (for live
+ * previews) and server actions (for the persisted computation); the numbers
+ * always match exactly.
  *
  * Money is rounded to 2 decimals to avoid floating point drift.
  */
@@ -36,7 +40,7 @@ export function computeAmounts(
 
   return lines.map((line) => {
     if (discountType === "FIXED") {
-      return { discountShare: 0, amountToPay: equalShare };
+      return { discountShare: 0, itemAmount: equalShare };
     }
 
     let discountShare = 0;
@@ -47,8 +51,8 @@ export function computeAmounts(
     // Never discount below zero.
     discountShare = Math.min(discountShare, line.price);
 
-    const amountToPay = round2(line.price - discountShare);
-    return { discountShare: round2(discountShare), amountToPay };
+    const itemAmount = round2(line.price - discountShare);
+    return { discountShare: round2(discountShare), itemAmount };
   });
 }
 

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { DiscountType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { computeAmounts } from "@/lib/discount";
+import { computeAmounts, round2 } from "@/lib/discount";
 
 function str(fd: FormData, key: string): string {
   return (fd.get(key) ?? "").toString().trim();
@@ -18,7 +18,11 @@ function parseDiscountType(v: string): DiscountType {
   return v === "FIXED" || v === "PERCENT" ? v : "NONE";
 }
 
-/** Recompute every participant's discount share + amount for a post. */
+/**
+ * Recompute every participant's discount share, delivery share, and final
+ * amount for a post. The delivery fee is always split equally across all
+ * participants and added on top of the discounted item amount.
+ */
 async function recompute(postId: string): Promise<void> {
   const post = await prisma.post.findUnique({
     where: { id: postId },
@@ -32,13 +36,17 @@ async function recompute(postId: string): Promise<void> {
     post.discountValue
   );
 
+  const count = post.participants.length;
+  const deliveryShare = count > 0 ? round2(post.deliveryFee / count) : 0;
+
   await prisma.$transaction(
     post.participants.map((p, i) =>
       prisma.participant.update({
         where: { id: p.id },
         data: {
           discountShare: results[i].discountShare,
-          amountToPay: results[i].amountToPay,
+          deliveryShare,
+          amountToPay: round2(results[i].itemAmount + deliveryShare),
         },
       })
     )
@@ -57,11 +65,11 @@ export async function createPost(formData: FormData): Promise<void> {
   const user = await requireUser();
   const title = str(formData, "title") || "บิลไม่มีชื่อ";
   const note = str(formData, "note") || null;
-  const discountType = parseDiscountType(str(formData, "discountType"));
-  const discountValue = num(formData, "discountValue");
 
+  // Discount + delivery fee are configured later in the post's settings,
+  // once the owner can see the actual participants and prices.
   const post = await prisma.post.create({
-    data: { ownerId: user.id, title, note, discountType, discountValue },
+    data: { ownerId: user.id, title, note },
   });
   redirect(`/posts/${post.id}`);
 }
@@ -79,6 +87,20 @@ export async function updatePostSettings(
       discountType: parseDiscountType(str(formData, "discountType")),
       discountValue: num(formData, "discountValue"),
     },
+  });
+  await recompute(postId);
+  revalidatePath(`/posts/${postId}`);
+}
+
+/** Set the bill's delivery fee — split equally across participants. */
+export async function updateDeliveryFee(
+  postId: string,
+  formData: FormData
+): Promise<void> {
+  await assertOwner(postId);
+  await prisma.post.update({
+    where: { id: postId },
+    data: { deliveryFee: Math.max(0, num(formData, "deliveryFee")) },
   });
   await recompute(postId);
   revalidatePath(`/posts/${postId}`);
