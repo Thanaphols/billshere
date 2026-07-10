@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { promptpayQrDataUrl } from "@/lib/promptpay";
+import { ownerKeyOf } from "@/lib/discount";
 import {
   updatePostSettings,
   togglePostStatus,
@@ -112,9 +113,6 @@ export default async function PostDetailPage({
         isOwner={isOwner}
         postId={post.id}
         postStatus={post.status}
-        existingPrices={post.participants.map((p) => p.price)}
-        discountType={post.discountType}
-        discountValue={post.discountValue}
         deliveryFee={post.deliveryFee}
         deliveryPersonCount={post.deliveryPersonCount}
         ownerQr={ownerQr}
@@ -128,6 +126,11 @@ export default async function PostDetailPage({
         <>
           <DiscountSettings
             action={updatePostSettings.bind(null, post.id)}
+            rows={post.participants.map((p) => ({
+              id: p.id,
+              price: p.price,
+              ownerKey: ownerKeyOf(p),
+            }))}
             defaultType={post.discountType}
             defaultValue={post.discountValue}
             defaultDeliveryFee={post.deliveryFee}

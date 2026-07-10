@@ -1,23 +1,14 @@
 "use client";
 
 import { useState, useRef } from "react";
-import type { DiscountType } from "@prisma/client";
-import { computeAmounts } from "@/lib/discount";
-import { baht } from "@/lib/format";
 import SubmitButton from "@/components/SubmitButton";
 import { useI18n } from "@/lib/i18n";
 
 export default function AddMenuItemForm({
   action,
-  existingPrices,
-  discountType,
-  discountValue,
   allUsers = [],
 }: {
   action: (formData: FormData) => void;
-  existingPrices: number[];
-  discountType: DiscountType;
-  discountValue: number;
   allUsers?: { id: string; name: string; email: string }[];
 }) {
   const [price, setPrice] = useState("");
@@ -27,15 +18,6 @@ export default function AddMenuItemForm({
   const [assignMode, setAssignMode] = useState<"user" | "guest">("user");
   const formRef = useRef<HTMLFormElement>(null);
   const { t, lang } = useI18n();
-
-  const parsedPrice = parseFloat(price) || 0;
-  const parsedQuantity = Math.max(1, parseInt(quantity) || 1);
-  const newLines = Array.from({ length: parsedQuantity }).map(() => ({ price: parsedPrice }));
-  const lines = [...existingPrices.map((p) => ({ price: p })), ...newLines];
-  const results = computeAmounts(lines, discountType, discountValue);
-  const previewTotal = results
-    .slice(existingPrices.length)
-    .reduce((sum, res) => sum + res.itemAmount, 0);
 
   const handleFormAction = async (formData: FormData) => {
     await action(formData);
@@ -149,13 +131,6 @@ export default function AddMenuItemForm({
           )}
         </div>
       </div>
-
-      {parsedPrice > 0 && (
-        <p className="rounded-lg bg-background px-3 py-2 text-sm text-muted">
-          {lang === "th" ? "ยอดที่ต้องจ่าย (พรีวิว): " : "Amount to pay (Preview): "}{" "}
-          <span className="font-semibold text-brand">{baht(previewTotal)}</span>
-        </p>
-      )}
 
       <SubmitButton>{t("bill.addMenu")}</SubmitButton>
     </form>

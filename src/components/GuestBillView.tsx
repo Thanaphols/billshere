@@ -30,7 +30,6 @@ export default function GuestBillView({
   myParticipantIds,
   myQr,
   myAmount,
-  myDelivery,
 }: {
   postId: string;
   shareToken: string;
@@ -42,7 +41,6 @@ export default function GuestBillView({
   myParticipantIds: string[];
   myQr: string | null;
   myAmount: number;
-  myDelivery: number;
 }) {
   const router = useRouter();
   const closed = postStatus === "CLOSED";
@@ -194,14 +192,7 @@ export default function GuestBillView({
         <h3 className="font-semibold text-sm mb-3">ยอดที่คุณต้องจ่าย</h3>
         {myAmount > 0 ? (
           myQr ? (
-            <>
-              {myDelivery > 0 && (
-                <p className="mb-2 text-[11px] text-muted">
-                  ค่าอาหาร {baht(myAmount - myDelivery)} + ค่าส่ง {baht(myDelivery)}
-                </p>
-              )}
-              <QrView dataUrl={myQr} amount={myAmount} payeeName={ownerName} />
-            </>
+            <QrView dataUrl={myQr} amount={myAmount} payeeName={ownerName} />
           ) : (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
               ผู้สร้างบิลยังไม่ได้ตั้งเบอร์ PromptPay จึงยังสร้าง QR ไม่ได้

@@ -3,8 +3,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { restorePost } from "@/actions/posts";
-import { baht } from "@/lib/format";
+import BinBillModal from "@/components/BinBillModal";
 
 export default async function BinPage() {
   const user = await getCurrentUser();
@@ -15,9 +14,11 @@ export default async function BinPage() {
 
   const posts = await prisma.post.findMany({
     where: { ownerId: user.id, deletedAt: { not: null } },
-    include: { participants: true },
+    include: { participants: { include: { user: true }, orderBy: { id: "asc" } } },
     orderBy: { deletedAt: "desc" },
   });
+
+  const unassigned = lang === "th" ? "ยังไม่ระบุคน" : "Unassigned";
 
   return (
     <div className="space-y-4">
@@ -27,8 +28,8 @@ export default async function BinPage() {
       </div>
       <p className="text-xs text-muted">
         {lang === "th"
-          ? "บิลที่ลบจะเก็บไว้ที่นี่ กู้คืนเพื่อใช้ต่อได้"
-          : "Deleted bills are kept here — restore to use again."}
+          ? "บิลที่ลบจะเก็บไว้ที่นี่ กดดูรายละเอียดก่อนกู้คืนได้"
+          : "Deleted bills are kept here — view details, then restore."}
       </p>
 
       {posts.length === 0 ? (
@@ -37,27 +38,24 @@ export default async function BinPage() {
         </p>
       ) : (
         <div className="space-y-3">
-          {posts.map((p) => {
-            const total = p.participants.reduce((s, x) => s + x.amountToPay, 0);
-            return (
-              <div
-                key={p.id}
-                className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-4 shadow-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-foreground">{p.title}</p>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    {p.participants.length} {lang === "th" ? "รายการ" : "items"} · {baht(total)}
-                  </p>
-                </div>
-                <form action={restorePost.bind(null, p.id)}>
-                  <button className="shrink-0 rounded-xl border border-brand bg-brand/5 px-3 py-2 text-xs font-bold text-brand hover:bg-brand/10 transition active:scale-[.96]">
-                    {lang === "th" ? "กู้คืน" : "Restore"}
-                  </button>
-                </form>
-              </div>
-            );
-          })}
+          {posts.map((p) => (
+            <BinBillModal
+              key={p.id}
+              postId={p.id}
+              title={p.title}
+              note={p.note}
+              deliveryFee={p.deliveryFee}
+              deliveryPersonCount={p.deliveryPersonCount}
+              items={p.participants.map((x) => ({
+                id: x.id,
+                itemName: x.itemName,
+                who: x.user?.name ?? x.guestName ?? unassigned,
+                price: x.price,
+                amountToPay: x.amountToPay,
+                paymentStatus: x.paymentStatus,
+              }))}
+            />
+          ))}
         </div>
       )}
     </div>

@@ -4,8 +4,6 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { baht } from "@/lib/format";
-import { perHeadDeliveryFee } from "@/lib/discount";
-import type { DiscountType } from "@prisma/client";
 import AddMenuItemForm from "@/components/AddMenuItemForm";
 import ShareBillModal from "@/components/ShareBillModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -13,6 +11,7 @@ import Dropdown from "@/components/Dropdown";
 import { useI18n } from "@/lib/i18n";
 import {
   addMenuItem,
+  editMenuItem,
   assignParticipantUser,
   removeParticipant,
   markPaid,
@@ -46,9 +45,6 @@ export default function ParticipantTable({
   isOwner,
   postId,
   postStatus,
-  existingPrices,
-  discountType,
-  discountValue,
   deliveryFee,
   deliveryPersonCount,
   ownerQr,
@@ -61,9 +57,6 @@ export default function ParticipantTable({
   isOwner: boolean;
   postId: string;
   postStatus: "OPEN" | "CLOSED";
-  existingPrices: number[];
-  discountType: DiscountType;
-  discountValue: number;
   deliveryFee: number;
   deliveryPersonCount: number;
   ownerQr: string | null;
@@ -116,7 +109,6 @@ export default function ParticipantTable({
   // Grand totals
   const totalOriginalPrice = participants.reduce((s, p) => s + p.price, 0);
   const totalAmountToPay = participants.reduce((s, p) => s + p.amountToPay, 0);
-  const perHeadDelivery = perHeadDeliveryFee(deliveryFee, deliveryPersonCount);
 
   // Client-side view filter — data is already loaded, no server round-trip.
   const q = search.trim().toLowerCase();
@@ -173,11 +165,10 @@ export default function ParticipantTable({
           {isOwner && (
             <button
               onClick={() => setShowAddForm((prev) => !prev)}
-              className={`rounded-full w-7 h-7 flex items-center justify-center font-bold transition-all border text-sm shadow-xs ${
-                showAddForm
+              className={`rounded-full w-7 h-7 flex items-center justify-center font-bold transition-all border text-sm shadow-xs ${showAddForm
                   ? "bg-brand text-white border-brand rotate-45"
                   : "bg-white text-brand border-border hover:bg-brand/5 active:scale-[.95] hover:border-brand/40"
-              }`}
+                }`}
               title="เพิ่มเมนู"
             >
               +
@@ -203,9 +194,6 @@ export default function ParticipantTable({
               await addMenuItem(postId, fd);
               setShowAddForm(false);
             }}
-            existingPrices={existingPrices}
-            discountType={discountType}
-            discountValue={discountValue}
             allUsers={allUsers}
           />
         </div>
@@ -274,9 +262,8 @@ export default function ParticipantTable({
                     {/* Main row, clicking anywhere on it toggles expanded view for owner */}
                     <tr
                       onClick={() => isOwner && toggleExpand(p.id)}
-                      className={`hover:bg-muted/5 border-t border-border transition-colors select-none ${
-                        isOwner ? "cursor-pointer" : ""
-                      } ${isExpanded ? "bg-muted/5" : ""}`}
+                      className={`hover:bg-muted/5 border-t border-border transition-colors select-none ${isOwner ? "cursor-pointer" : ""
+                        } ${isExpanded ? "bg-muted/5" : ""}`}
                     >
                       <td className="p-3 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -291,13 +278,12 @@ export default function ParticipantTable({
                         </div>
                         <div className="text-[10px] text-muted flex items-center gap-1 mt-0.5 flex-wrap">
                           <span
-                            className={`truncate max-w-[100px] ${
-                              isUnassigned
+                            className={`truncate max-w-[100px] ${isUnassigned
                                 ? "text-muted font-normal"
                                 : isGuest
-                                ? "text-amber-600 font-medium"
-                                : "text-brand font-medium"
-                            }`}
+                                  ? "text-amber-600 font-medium"
+                                  : "text-brand font-medium"
+                              }`}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-3 h-3 inline-block mr-0.5 align-text-bottom text-muted">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
@@ -310,15 +296,15 @@ export default function ParticipantTable({
                               p.paymentStatus === "PAID"
                                 ? "text-green-600 font-semibold"
                                 : p.paymentStatus === "SLIP_UPLOADED"
-                                ? "text-amber-600 font-semibold animate-pulse"
-                                : "text-muted font-normal"
+                                  ? "text-amber-600 font-semibold animate-pulse"
+                                  : "text-muted font-normal"
                             }
                           >
                             {p.paymentStatus === "PAID"
                               ? t("bill.status.paid")
                               : p.paymentStatus === "SLIP_UPLOADED"
-                              ? t("bill.status.uploaded")
-                              : t("bill.status.unpaid")}
+                                ? t("bill.status.uploaded")
+                                : t("bill.status.unpaid")}
                           </span>
                         </div>
                       </td>
@@ -340,6 +326,48 @@ export default function ParticipantTable({
                       <tr className="bg-muted/10">
                         <td colSpan={3} className="p-3 bg-muted/20 border-t border-border">
                           <div className="space-y-3.5">
+                            {/* Edit item name / price */}
+                            {postStatus === "OPEN" && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1">
+                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                                  </svg>
+                                  {lang === "th" ? "แก้ไขรายการ" : "Edit item"}
+                                </p>
+                                <form
+                                  action={async (fd) => {
+                                    await editMenuItem(p.id, fd);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="space-y-2"
+                                >
+                                  <div className="flex gap-2">
+                                    <input
+                                      name="itemName"
+                                      defaultValue={p.itemName}
+                                      placeholder={lang === "th" ? "ชื่อเมนู" : "Item name"}
+                                      className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand"
+                                    />
+                                    <input
+                                      name="price"
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      defaultValue={p.price}
+                                      className="no-spinner w-24 rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand"
+                                    />
+                                  </div>
+                                  <button
+                                    type="submit"
+                                    className="w-full rounded-xl bg-brand text-white py-2 px-4 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]"
+                                  >
+                                    {lang === "th" ? "บันทึกรายการ" : "Save item"}
+                                  </button>
+                                </form>
+                              </div>
+                            )}
+
                             {/* Assignment form */}
                             <div className="space-y-2">
                               <p className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1">
@@ -359,9 +387,8 @@ export default function ParticipantTable({
                                         e.stopPropagation();
                                         setAssignMode(p.id, "user");
                                       }}
-                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                                        mode === "user" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
-                                      }`}
+                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${mode === "user" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+                                        }`}
                                     >
                                       {lang === "th" ? "เลือกจากสมาชิก" : "Select Member"}
                                     </button>
@@ -371,9 +398,8 @@ export default function ParticipantTable({
                                         e.stopPropagation();
                                         setAssignMode(p.id, "guest");
                                       }}
-                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                                        mode === "guest" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
-                                      }`}
+                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${mode === "guest" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+                                        }`}
                                     >
                                       {lang === "th" ? "กำหนดเอง (พิมพ์ชื่อ)" : "Custom Name"}
                                     </button>
@@ -491,7 +517,7 @@ export default function ParticipantTable({
                                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                                   </svg>
-                                  {t("bill.delete")}
+                                  {/* {t("bill.delete")} */}
                                 </button>
                               </div>
                             </div>
@@ -515,16 +541,10 @@ export default function ParticipantTable({
               </tr>
               {deliveryFee > 0 && (
                 <tr className="border-t border-border/60 text-muted">
-                  <td colSpan={2} className="p-3 text-xs font-semibold">
+                  <td colSpan={3} className="p-3 text-[10px] font-normal">
                     {lang === "th"
-                      ? `ค่าส่ง (หาร ${deliveryPersonCount} คน)`
-                      : `Delivery (split ${deliveryPersonCount} ways)`}
-                    <span className="ml-1 font-normal text-[10px]">
-                      {lang === "th" ? `รวม ${baht(deliveryFee)}` : `total ${baht(deliveryFee)}`}
-                    </span>
-                  </td>
-                  <td className="p-3 text-right text-xs font-bold text-foreground whitespace-nowrap">
-                    {lang === "th" ? `คนละ ${baht(perHeadDelivery)}` : `${baht(perHeadDelivery)}/person`}
+                      ? `* ยอดรวมค่าส่ง ${baht(deliveryFee)} (หาร ${deliveryPersonCount} คน) แล้ว`
+                      : `* Totals already include ${baht(deliveryFee)} delivery (split ${deliveryPersonCount} ways)`}
                   </td>
                 </tr>
               )}

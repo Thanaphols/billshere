@@ -60,7 +60,7 @@ export default async function DashboardPage({
   ]);
 
   const toCard = (p: (typeof owned)[number]): PostCardData => {
-    const mine = p.participants.find((x) => x.userId === user.id);
+    const myRows = p.participants.filter((x) => x.userId === user.id);
     return {
       id: p.id,
       title: p.title,
@@ -69,8 +69,8 @@ export default async function DashboardPage({
       total: p.participants.reduce((s, x) => s + x.amountToPay, 0),
       count: p.participants.length,
       paidCount: p.participants.filter((x) => x.paymentStatus === "PAID").length,
-      myAmount: mine?.amountToPay,
-      myStatus: mine?.paymentStatus,
+      myAmount: myRows.length ? myRows.reduce((s, x) => s + x.amountToPay, 0) : undefined,
+      myStatus: myRows[0]?.paymentStatus,
     };
   };
 

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { DiscountType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { computeAmounts } from "@/lib/discount";
+import { computeBill, ownerKeyOf } from "@/lib/discount";
 import { notifyPostUpdate } from "@/lib/events";
 import { deleteSlipFile } from "@/lib/uploads";
 
@@ -21,9 +21,9 @@ function parseDiscountType(v: string): DiscountType {
 }
 
 /**
- * Recompute every participant's discount share and final amount for a post.
- * Delivery fee is NOT part of this — it's a manual total ÷ head-count the
- * owner enters, shown as a summary-only figure, decoupled from amountToPay.
+ * Recompute every participant's final amount for a post. Discount AND delivery
+ * are now folded into amountToPay per the person-based model (see computeBill):
+ * one manual head count divides both, and each payer's rows re-sum to their total.
  */
 async function recompute(postId: string): Promise<void> {
   const post = await prisma.post.findUnique({
@@ -32,10 +32,14 @@ async function recompute(postId: string): Promise<void> {
   });
   if (!post) return;
 
-  const results = computeAmounts(
-    post.participants.map((p) => ({ price: p.price })),
-    post.discountType,
-    post.discountValue
+  const results = computeBill(
+    post.participants.map((p) => ({ id: p.id, price: p.price, ownerKey: ownerKeyOf(p) })),
+    {
+      discountType: post.discountType,
+      discountValue: post.discountValue,
+      deliveryFee: post.deliveryFee,
+      personCount: post.deliveryPersonCount,
+    }
   );
 
   await prisma.$transaction(
@@ -44,7 +48,7 @@ async function recompute(postId: string): Promise<void> {
         where: { id: p.id },
         data: {
           discountShare: results[i].discountShare,
-          amountToPay: results[i].itemAmount,
+          amountToPay: results[i].amountToPay,
         },
       })
     )
@@ -159,6 +163,30 @@ export async function addMenuItem(
 
   await recompute(postId);
   revalidatePath(`/posts/${postId}`);
+  notifyPostUpdate(postId);
+}
+
+/** Owner edits a menu item's name and/or price; recomputes amounts on price change. */
+export async function editMenuItem(
+  participantId: string,
+  formData: FormData
+): Promise<void> {
+  const p = await prisma.participant.findUnique({ where: { id: participantId } });
+  if (!p) return;
+  const post = await assertOwner(p.postId);
+  if (post.status === "CLOSED") throw new Error("BILL_CLOSED");
+
+  const itemName = str(formData, "itemName") || p.itemName;
+  const price = num(formData, "price");
+  if (price <= 0) return;
+
+  await prisma.participant.update({
+    where: { id: participantId },
+    data: { itemName, price },
+  });
+  await recompute(p.postId);
+  revalidatePath(`/posts/${p.postId}`);
+  notifyPostUpdate(p.postId);
 }
 
 /**
@@ -371,7 +399,7 @@ export async function loadMorePosts(
   }
 
   return posts.map((p) => {
-    const mine = p.participants.find((x) => x.userId === user.id);
+    const myRows = p.participants.filter((x) => x.userId === user.id);
     return {
       id: p.id,
       title: p.title,
@@ -384,8 +412,8 @@ export async function loadMorePosts(
       total: p.participants.reduce((s, x) => s + x.amountToPay, 0),
       count: p.participants.length,
       paidCount: p.participants.filter((x) => x.paymentStatus === "PAID").length,
-      myAmount: mine?.amountToPay,
-      myStatus: mine?.paymentStatus,
+      myAmount: myRows.length ? myRows.reduce((s, x) => s + x.amountToPay, 0) : undefined,
+      myStatus: myRows[0]?.paymentStatus,
     };
   });
 }

@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { baht } from "@/lib/format";
-import { perHeadDeliveryFee } from "@/lib/discount";
 import { useI18n } from "@/lib/i18n";
 import { getOrCreateShareLink } from "@/actions/posts";
 
@@ -134,7 +133,6 @@ export default function ShareBillModal({
         const totalOriginalPrice = participants.reduce((s, p) => s + p.price, 0);
         const totalDiscount = participants.reduce((s, p) => s + p.discountShare, 0);
         const totalAmountToPay = participants.reduce((s, p) => s + p.amountToPay, 0);
-        const perHeadDelivery = perHeadDeliveryFee(deliveryFee, deliveryPersonCount);
 
         // 3. Header Text
         drawCenteredText("billshere", 32, "bold 13px sans-serif", "#16a34a");
@@ -225,12 +223,10 @@ export default function ShareBillModal({
 
         if (deliveryFee > 0) {
           drawSummaryRow(
-            lang === "th" ? `ค่าส่งทั้งหมด (หาร ${deliveryPersonCount} คน)` : `Total Delivery (split ${deliveryPersonCount})`,
-            `฿${deliveryFee.toFixed(2)}`
-          );
-          drawSummaryRow(
-            lang === "th" ? "ตกคนละ" : "Per Person",
-            `฿${perHeadDelivery.toFixed(2)}`
+            lang === "th"
+              ? `รวมค่าส่ง ฿${deliveryFee.toFixed(2)} (หาร ${deliveryPersonCount} คน) แล้ว`
+              : `Incl. ฿${deliveryFee.toFixed(2)} delivery (split ${deliveryPersonCount})`,
+            ""
           );
         }
 
