@@ -10,6 +10,10 @@
   --brand-fg: #ffffff;
 }
 
+[data-theme="blue"] {
+  --brand: #2563eb;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);

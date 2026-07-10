@@ -1,26 +1,18 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireUser } from "@/lib/auth";
-import { baht } from "@/lib/format";
-import { discountLabel } from "@/lib/discount";
+import { getCurrentUser } from "@/lib/auth";
 import { promptpayQrDataUrl } from "@/lib/promptpay";
 import {
-  addParticipant,
-  removeParticipant,
-  markPaid,
-  markUnpaid,
   updatePostSettings,
-  updateDeliveryFee,
   togglePostStatus,
 } from "@/actions/posts";
-import StatusBadge from "@/components/StatusBadge";
-import SlipUpload from "@/components/SlipUpload";
-import QrView from "@/components/QrView";
-import SubmitButton from "@/components/SubmitButton";
+import PaySlipPanel from "@/components/PaySlipPanel";
 import DiscountSettings from "@/components/DiscountSettings";
-import AddParticipantForm from "@/components/AddParticipantForm";
-import DeliveryFeeForm from "@/components/DeliveryFeeForm";
+import ParticipantTable from "@/components/ParticipantTable";
+import EditPostModal from "@/components/EditPostModal";
+import DeletePostButton from "@/components/DeletePostButton";
+import { cookies } from "next/headers";
+import { t } from "@/lib/i18n-dict";
 
 export default async function PostDetailPage({
   params,
@@ -28,7 +20,11 @@ export default async function PostDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireUser();
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  const cookieStore = await cookies();
+  const lang = (cookieStore.get("billshere_lang")?.value || "th") as any;
 
   const post = await prisma.post.findUnique({
     where: { id },
@@ -37,20 +33,25 @@ export default async function PostDetailPage({
       participants: { include: { user: true }, orderBy: { id: "asc" } },
     },
   });
-  if (!post) notFound();
+  if (!post || post.deletedAt) notFound();
 
   const isOwner = post.ownerId === user.id;
-  const mine = post.participants.find((p) => p.userId === user.id);
-  const itemTotal = post.participants.reduce((s, p) => s + p.price, 0);
-  const total = post.participants.reduce((s, p) => s + p.amountToPay, 0);
+  const myParticipants = post.participants.filter((p) => p.userId === user.id);
+  const myAmount = myParticipants.reduce((s, p) => s + p.amountToPay, 0);
   const paidCount = post.participants.filter(
     (p) => p.paymentStatus === "PAID"
   ).length;
 
-  // QR for the current tagged user to pay the post owner.
+  // QR for the current user to pay the post owner, sized to everything owed across all their rows.
   let myQr: string | null = null;
-  if (mine && post.owner.promptpayNumber) {
-    myQr = await promptpayQrDataUrl(post.owner.promptpayNumber, mine.amountToPay);
+  if (myAmount > 0 && post.owner.promptpayNumber) {
+    myQr = await promptpayQrDataUrl(post.owner.promptpayNumber, myAmount);
+  }
+
+  // Generic QR for the owner to receive payment (with no preset amount) for sharing.
+  let ownerQr: string | null = null;
+  if (post.owner.promptpayNumber) {
+    ownerQr = await promptpayQrDataUrl(post.owner.promptpayNumber);
   }
 
   const allUsers = isOwner
@@ -63,180 +64,85 @@ export default async function PostDetailPage({
       <div className="rounded-2xl bg-surface p-4 shadow-sm">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-lg font-bold">{post.title}</h2>
-            <p className="text-xs text-muted">
-              โดย {post.owner.name}
-              {post.note ? ` · ${post.note}` : ""}
+            <div className="flex items-center gap-1.5">
+              <h2 className="text-lg font-bold text-foreground">{post.title}</h2>
+              {isOwner && (
+                <EditPostModal
+                  postId={post.id}
+                  defaultTitle={post.title}
+                  defaultNote={post.note}
+                />
+              )}
+            </div>
+            {post.note && (
+              <p className="text-xs text-muted mt-0.5">{post.note}</p>
+            )}
+            <p className="text-[10px] text-muted mt-1.5">
+              {lang === "th"
+                ? `โดย ${post.owner.name} · จ่ายแล้ว ${paidCount}/${post.participants.length} คน`
+                : `By ${post.owner.name} · Paid ${paidCount}/${post.participants.length} users`}
             </p>
           </div>
           <span
-            className={`rounded-full px-2 py-0.5 text-xs ${
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
               post.status === "OPEN"
                 ? "bg-green-100 text-green-700"
-                : "bg-gray-200 text-gray-600"
+                : "bg-gray-100 text-gray-600"
             }`}
           >
-            {post.status === "OPEN" ? "เปิด" : "ปิดแล้ว"}
+            {post.status === "OPEN" ? t("bill.status.open", lang) : t("bill.status.closed", lang)}
           </span>
         </div>
-        <div className="mt-3 flex items-center justify-between text-sm">
-          <span className="text-muted">{discountLabel(post.discountType, post.discountValue)}</span>
-          <span className="font-semibold">รวม {baht(total)}</span>
-        </div>
-        <p className="mt-1 text-xs text-muted">
-          ค่าอาหาร {baht(itemTotal)}
-          {post.deliveryFee > 0 ? ` + ค่าส่ง ${baht(post.deliveryFee)}` : ""} ={" "}
-          {baht(itemTotal + post.deliveryFee)}
-        </p>
-        <p className="mt-1 text-xs text-muted">
-          จ่ายแล้ว {paidCount}/{post.participants.length} คน
-        </p>
       </div>
 
-      {/* Pay panel for the current tagged user */}
-      {mine && (
-        <div className="rounded-2xl bg-surface p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-semibold">ยอดที่คุณต้องจ่าย</h3>
-            <StatusBadge status={mine.paymentStatus} />
-          </div>
-          {myQr ? (
-            <QrView dataUrl={myQr} amount={mine.amountToPay} payeeName={post.owner.name} />
-          ) : (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
-              ผู้สร้างบิลยังไม่ได้ตั้งเบอร์ PromptPay จึงยังสร้าง QR ไม่ได้
-            </p>
-          )}
-
-          <div className="mt-3">
-            {mine.slipImagePath && (
-              <Link
-                href={`/api/uploads/${mine.slipImagePath}`}
-                target="_blank"
-                className="mb-2 block text-sm text-brand underline"
-              >
-                ดูสลิปที่แนบไว้
-              </Link>
-            )}
-            {mine.paymentStatus !== "PAID" && <SlipUpload participantId={mine.id} />}
-          </div>
-        </div>
-      )}
+      {/* Pay panel — visible to any visitor, whether or not they already own any item */}
+      <PaySlipPanel
+        participants={post.participants}
+        currentUserId={user.id}
+        postStatus={post.status}
+        ownerName={post.owner.name}
+        myQr={myQr}
+        myAmount={myAmount}
+      />
 
       {/* Participant list */}
-      <div className="space-y-2">
-        <h3 className="font-semibold">รายชื่อผู้จ่าย</h3>
-        {post.participants.length === 0 && (
-          <p className="text-sm text-muted">ยังไม่มีผู้จ่ายในบิลนี้</p>
-        )}
-        {post.participants.map((p) => (
-          <div key={p.id} className="rounded-2xl bg-surface p-3 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
-                <p className="truncate font-medium">{p.user.name}</p>
-                <p className="truncate text-xs text-muted">
-                  {p.itemName} · ราคา {baht(p.price)}
-                  {p.discountShare > 0 ? ` · ลด ${baht(p.discountShare)}` : ""}
-                  {p.deliveryShare > 0 ? ` · ค่าส่ง ${baht(p.deliveryShare)}` : ""}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="font-semibold">{baht(p.amountToPay)}</p>
-                <StatusBadge status={p.paymentStatus} />
-              </div>
-            </div>
-
-            {isOwner && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2">
-                {p.slipImagePath && (
-                  <Link
-                    href={`/api/uploads/${p.slipImagePath}`}
-                    target="_blank"
-                    className="text-xs text-brand underline"
-                  >
-                    ดูสลิป
-                  </Link>
-                )}
-                {p.paymentStatus !== "PAID" ? (
-                  <form action={markPaid.bind(null, p.id)}>
-                    <button className="text-xs font-semibold text-green-600">
-                      ✓ ยืนยันจ่ายแล้ว
-                    </button>
-                  </form>
-                ) : (
-                  <form action={markUnpaid.bind(null, p.id)}>
-                    <button className="text-xs text-amber-600">ยกเลิกการยืนยัน</button>
-                  </form>
-                )}
-                <form action={removeParticipant.bind(null, p.id)} className="ml-auto">
-                  <button className="text-xs text-red-500">ลบ</button>
-                </form>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
+      <ParticipantTable
+        participants={post.participants}
+        allUsers={allUsers}
+        isOwner={isOwner}
+        postId={post.id}
+        postStatus={post.status}
+        existingPrices={post.participants.map((p) => p.price)}
+        discountType={post.discountType}
+        discountValue={post.discountValue}
+        deliveryFee={post.deliveryFee}
+        deliveryPersonCount={post.deliveryPersonCount}
+        ownerQr={ownerQr}
+        ownerName={post.owner.name}
+        postTitle={post.title}
+        postNote={post.note}
+      />
 
       {/* Owner controls */}
       {isOwner && (
         <>
-          <details className="rounded-2xl bg-surface p-4 shadow-sm">
-            <summary className="cursor-pointer font-semibold">
-              เพิ่มผู้จ่าย (แท็กสมาชิก)
-            </summary>
-            <AddParticipantForm
-              action={addParticipant.bind(null, post.id)}
-              users={allUsers}
-              existingPrices={post.participants.map((p) => p.price)}
-              discountType={post.discountType}
-              discountValue={post.discountValue}
-              deliveryFee={post.deliveryFee}
-            />
-          </details>
+          <DiscountSettings
+            action={updatePostSettings.bind(null, post.id)}
+            defaultType={post.discountType}
+            defaultValue={post.discountValue}
+            defaultDeliveryFee={post.deliveryFee}
+            defaultDeliveryPersonCount={post.deliveryPersonCount}
+          />
 
-          <details className="rounded-2xl bg-surface p-4 shadow-sm">
-            <summary className="cursor-pointer font-semibold">ตั้งค่าบิล / ส่วนลด</summary>
-            <form
-              action={updatePostSettings.bind(null, post.id)}
-              className="mt-3 space-y-3"
-            >
-              <input
-                name="title"
-                defaultValue={post.title}
-                className="w-full rounded-xl border border-border bg-white px-3 py-3"
-              />
-              <input
-                name="note"
-                defaultValue={post.note ?? ""}
-                placeholder="โน้ต"
-                className="w-full rounded-xl border border-border bg-white px-3 py-3"
-              />
-              <DiscountSettings
-                defaultType={post.discountType}
-                defaultValue={post.discountValue}
-                participants={post.participants.map((p) => ({
-                  name: p.user.name,
-                  price: p.price,
-                }))}
-              />
-              <SubmitButton>บันทึกและคำนวณใหม่</SubmitButton>
+          <div className="space-y-2">
+            <form action={togglePostStatus.bind(null, post.id)}>
+              <button className="w-full rounded-xl border border-border bg-surface py-2.5 text-sm font-semibold text-foreground hover:bg-muted/10 transition active:scale-[.98]">
+                {post.status === "OPEN" ? t("bill.closeBill", lang) : t("bill.reopenBill", lang)}
+              </button>
             </form>
-          </details>
 
-          <details className="rounded-2xl bg-surface p-4 shadow-sm">
-            <summary className="cursor-pointer font-semibold">ค่าส่ง</summary>
-            <DeliveryFeeForm
-              action={updateDeliveryFee.bind(null, post.id)}
-              defaultFee={post.deliveryFee}
-              participantCount={post.participants.length}
-            />
-          </details>
-
-          <form action={togglePostStatus.bind(null, post.id)}>
-            <button className="w-full rounded-xl border border-border py-2.5 text-sm text-muted">
-              {post.status === "OPEN" ? "ปิดบิลนี้" : "เปิดบิลอีกครั้ง"}
-            </button>
-          </form>
+            <DeletePostButton postId={post.id} />
+          </div>
         </>
       )}
     </div>

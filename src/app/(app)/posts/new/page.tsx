@@ -3,7 +3,7 @@ import SubmitButton from "@/components/SubmitButton";
 
 export default function NewPostPage() {
   return (
-    <div>
+    <div className="rounded-2xl bg-surface p-4 shadow-sm">
       <h2 className="mb-4 text-lg font-semibold">สร้างบิลใหม่</h2>
       <form action={createPost} className="space-y-4">
         <label className="block">

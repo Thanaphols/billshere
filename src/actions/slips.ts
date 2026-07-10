@@ -1,70 +1,70 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { promises as fs } from "fs";
-import path from "path";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-
-const UPLOAD_DIR = process.env.UPLOAD_DIR || "./uploads";
-
-const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
-const EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-};
+import { notifyPostUpdate } from "@/lib/events";
+import { deleteSlipFile, saveSlipForParticipants } from "@/lib/uploads";
 
 /**
- * A tagged participant (or the post owner) uploads a transfer slip image.
- * The file lands in UPLOAD_DIR and is served back via /api/uploads/[file].
+ * Upload one slip image and attach it to every given participant row — one
+ * PromptPay transfer can cover several menu items owned by the same person.
+ * Every row must already be claimed by the caller (via claimParticipant) and
+ * unlocked (no existing slip); this action only writes the file + status.
  */
 export type SlipState = { error?: string; ok?: boolean } | undefined;
 
 export async function uploadSlip(
-  participantId: string,
+  participantIds: string[],
   _prev: SlipState,
   formData: FormData
 ): Promise<SlipState> {
   const user = await requireUser();
+  if (participantIds.length === 0) return { error: "กรุณาเลือกอย่างน้อย 1 รายการ" };
 
+  const participants = await prisma.participant.findMany({
+    where: { id: { in: participantIds } },
+    include: { post: true },
+  });
+  if (participants.length !== participantIds.length) return { error: "ไม่พบรายการ" };
+
+  const post = participants[0].post;
+  if (participants.some((p) => p.postId !== post.id)) {
+    return { error: "รายการไม่อยู่ในบิลเดียวกัน" };
+  }
+  if (post.status === "CLOSED") {
+    return { error: "บิลปิดแล้ว ไม่สามารถแนบสลิปได้" };
+  }
+  for (const p of participants) {
+    if (p.userId !== user.id) return { error: `คุณไม่มีสิทธิ์แนบสลิปของ "${p.itemName}"` };
+    if (p.slipImagePath) return { error: `"${p.itemName}" แนบสลิปแล้ว` };
+  }
+
+  const result = await saveSlipForParticipants(participants, formData.get("slip"));
+  if ("error" in result) return result;
+
+  revalidatePath(`/posts/${post.id}`);
+  notifyPostUpdate(post.id);
+  return { ok: true };
+}
+
+/** Owner deletes an already-uploaded slip, resetting the row back to unpaid. */
+export async function deleteSlip(participantId: string): Promise<void> {
+  const user = await requireUser();
   const participant = await prisma.participant.findUnique({
     where: { id: participantId },
     include: { post: true },
   });
-  if (!participant) return { error: "ไม่พบรายการ" };
+  if (!participant) return;
+  if (participant.post.ownerId !== user.id) throw new Error("FORBIDDEN");
+  if (!participant.slipImagePath) return;
 
-  // Only the tagged payer or the post owner may attach a slip.
-  if (participant.userId !== user.id && participant.post.ownerId !== user.id) {
-    return { error: "คุณไม่มีสิทธิ์แนบสลิปของรายการนี้" };
-  }
-
-  const file = formData.get("slip");
-  if (!(file instanceof File) || file.size === 0) {
-    return { error: "กรุณาเลือกไฟล์รูปสลิป" };
-  }
-  if (!ALLOWED.has(file.type)) {
-    return { error: "รองรับเฉพาะรูป PNG, JPG, WEBP" };
-  }
-  if (file.size > 5 * 1024 * 1024) {
-    return { error: "ไฟล์ใหญ่เกิน 5MB" };
-  }
-
-  await fs.mkdir(UPLOAD_DIR, { recursive: true });
-  const filename = `${participantId}.${EXT[file.type]}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(UPLOAD_DIR, filename), buffer);
-
+  await deleteSlipFile(participant.slipImagePath);
   await prisma.participant.update({
     where: { id: participantId },
-    data: {
-      slipImagePath: filename,
-      // Don't downgrade an already-confirmed payment.
-      paymentStatus:
-        participant.paymentStatus === "PAID" ? "PAID" : "SLIP_UPLOADED",
-    },
+    data: { slipImagePath: null, paymentStatus: "UNPAID", paidAt: null },
   });
 
   revalidatePath(`/posts/${participant.postId}`);
-  return { ok: true };
+  notifyPostUpdate(participant.postId);
 }

@@ -60,6 +60,16 @@ export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Delivery fee is entered by the owner as one total plus a manual head count
+ * (not tied to menu items/assignment — one person may own several items, so
+ * splitting per line never matched splitting per person anyway). This is a
+ * summary-only figure, not added into any participant's amountToPay.
+ */
+export function perHeadDeliveryFee(fee: number, count: number): number {
+  return count > 0 ? round2(fee / count) : 0;
+}
+
 /** Human label for the discount setting. */
 export function discountLabel(type: DiscountType, value: number): string {
   if (type === "FIXED") return "หารเท่ากันทั้งบิล (ทุกคนจ่ายเท่ากัน)";

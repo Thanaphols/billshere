@@ -51,26 +51,38 @@ model Post {
   discountValue Float       @default(0)
   // Total delivery cost for the whole bill, split equally across participants.
   deliveryFee  Float        @default(0)
+  // Manually entered by the owner — how many people to split deliveryFee among.
+  deliveryPersonCount Int   @default(1)
   status       PostStatus   @default(OPEN)
   createdAt    DateTime     @default(now())
+  // Public guest-access token, lazily generated when the owner first opens the share link UI.
+  shareToken   String?      @unique
+  // Soft delete: non-null means the bill is in the owner's bin, hidden from all
+  // active views but restorable. Null = active.
+  deletedAt    DateTime?
 
   participants Participant[]
 
   @@index([ownerId])
   @@index([createdAt])
+  @@index([deletedAt])
 }
 
 model Participant {
   id            String        @id @default(cuid())
   post          Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId        String
-  // The tagged company member who owes this amount.
-  user          User          @relation(fields: [userId], references: [id])
-  userId        String
+  // The company member who owes this amount — assigned after the menu item is created.
+  user          User?         @relation(fields: [userId], references: [id])
+  userId        String?
+  // Free-text name for someone without an account. Ignored if userId is set.
+  guestName     String?
+  // Identifies which guest browser (no account) claimed this row — shared
+  // across every row the same guest claimed via the public /share link.
+  guestClaimToken String?
   itemName      String
   price         Float
   discountShare Float         @default(0)
-  deliveryShare Float         @default(0)
   amountToPay   Float         @default(0)
   paymentStatus PaymentStatus @default(UNPAID)
   slipImagePath String?
@@ -78,4 +90,5 @@ model Participant {
 
   @@index([postId])
   @@index([userId])
+  @@index([guestClaimToken])
 }

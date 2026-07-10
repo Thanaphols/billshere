@@ -30,3 +30,18 @@ export async function updateProfile(
   revalidatePath("/profile");
   return { ok: true };
 }
+
+export async function updateAppSettings(
+  lang: "th" | "en",
+  theme: "green" | "blue"
+): Promise<void> {
+  const { cookies } = await import("next/headers");
+  const store = await cookies();
+  store.set("billshere_lang", lang, { maxAge: 60 * 60 * 24 * 365, path: "/" });
+  store.set("billshere_theme", theme, { maxAge: 60 * 60 * 24 * 365, path: "/" });
+  
+  revalidatePath("/");
+  revalidatePath("/profile");
+  revalidatePath("/search");
+  revalidatePath("/summary");
+}

@@ -4,10 +4,12 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { baht } from "@/lib/format";
+import { perHeadDeliveryFee } from "@/lib/discount";
 import type { DiscountType } from "@prisma/client";
 import AddMenuItemForm from "@/components/AddMenuItemForm";
 import ShareBillModal from "@/components/ShareBillModal";
 import ConfirmModal from "@/components/ConfirmModal";
+import Dropdown from "@/components/Dropdown";
 import { useI18n } from "@/lib/i18n";
 import {
   addMenuItem,
@@ -16,6 +18,7 @@ import {
   markPaid,
   markUnpaid,
 } from "@/actions/posts";
+import { deleteSlip } from "@/actions/slips";
 
 type UserOption = {
   id: string;
@@ -28,7 +31,6 @@ type ParticipantData = {
   itemName: string;
   price: number;
   discountShare: number;
-  deliveryShare: number;
   amountToPay: number;
   paymentStatus: string;
   slipImagePath: string | null;
@@ -43,9 +45,12 @@ export default function ParticipantTable({
   allUsers,
   isOwner,
   postId,
+  postStatus,
   existingPrices,
   discountType,
   discountValue,
+  deliveryFee,
+  deliveryPersonCount,
   ownerQr,
   ownerName,
   postTitle,
@@ -55,9 +60,12 @@ export default function ParticipantTable({
   allUsers: UserOption[];
   isOwner: boolean;
   postId: string;
+  postStatus: "OPEN" | "CLOSED";
   existingPrices: number[];
   discountType: DiscountType;
   discountValue: number;
+  deliveryFee: number;
+  deliveryPersonCount: number;
   ownerQr: string | null;
   ownerName: string;
   postTitle: string;
@@ -68,6 +76,9 @@ export default function ParticipantTable({
   const [showAddForm, setShowAddForm] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [slipToDelete, setSlipToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "UNPAID" | "SLIP_UPLOADED" | "PAID">("all");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const { t, lang } = useI18n();
@@ -104,8 +115,17 @@ export default function ParticipantTable({
 
   // Grand totals
   const totalOriginalPrice = participants.reduce((s, p) => s + p.price, 0);
-  const totalDeliveryFee = participants.reduce((s, p) => s + p.deliveryShare, 0);
   const totalAmountToPay = participants.reduce((s, p) => s + p.amountToPay, 0);
+  const perHeadDelivery = perHeadDeliveryFee(deliveryFee, deliveryPersonCount);
+
+  // Client-side view filter — data is already loaded, no server round-trip.
+  const q = search.trim().toLowerCase();
+  const filtered = participants.filter((p) => {
+    const name = (p.user?.name ?? p.guestName ?? "").toLowerCase();
+    const matchText = !q || p.itemName.toLowerCase().includes(q) || name.includes(q);
+    const matchStatus = statusFilter === "all" || p.paymentStatus === statusFilter;
+    return matchText && matchStatus;
+  });
 
   return (
     <div className="space-y-2">
@@ -191,26 +211,58 @@ export default function ParticipantTable({
         </div>
       )}
 
+      {/* Search + status filter */}
+      {participants.length > 0 && (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={lang === "th" ? "ค้นหาเมนู หรือชื่อผู้จ่าย" : "Search item or payer"}
+            className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2 text-xs outline-none focus:border-brand"
+          />
+          <div className="w-32 shrink-0">
+            <Dropdown
+              name="statusFilter"
+              value={statusFilter}
+              onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+              placeholder={lang === "th" ? "ทุกสถานะ" : "All status"}
+              options={[
+                { value: "all", label: lang === "th" ? "ทุกสถานะ" : "All status" },
+                { value: "UNPAID", label: t("bill.status.unpaid") },
+                { value: "SLIP_UPLOADED", label: t("bill.status.uploaded") },
+                { value: "PAID", label: t("bill.status.paid") },
+              ]}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Main table */}
       <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         <table className="w-full text-xs text-left border-collapse table-fixed">
           <thead>
             <tr className="bg-background text-muted uppercase tracking-wider border-b border-border">
-              <th className="p-3 font-semibold w-[36%]">{lang === "th" ? "รายการ (ผู้จ่าย)" : "Item (Payer)"}</th>
-              <th className="p-3 text-right font-semibold w-[18%]">{t("bill.amount")}</th>
-              <th className="p-3 text-right font-semibold w-[24%]">{t("bill.delivery")}</th>
-              <th className="p-3 text-right font-semibold w-[22%]">{t("bill.total")}</th>
+              <th className="p-3 font-semibold w-[46%]">{lang === "th" ? "รายการ (ผู้จ่าย)" : "Item (Payer)"}</th>
+              <th className="p-3 text-right font-semibold w-[27%]">{t("bill.amount")}</th>
+              <th className="p-3 text-right font-semibold w-[27%]">{t("bill.total")}</th>
             </tr>
           </thead>
           <tbody>
             {participants.length === 0 ? (
               <tr>
-                <td colSpan={4} className="p-8 text-center text-sm text-muted">
+                <td colSpan={3} className="p-8 text-center text-sm text-muted">
                   {t("bill.empty")}
                 </td>
               </tr>
+            ) : filtered.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="p-8 text-center text-sm text-muted">
+                  {lang === "th" ? "ไม่พบรายการที่ค้นหา" : "No matching items"}
+                </td>
+              </tr>
             ) : (
-              participants.map((p) => {
+              filtered.map((p) => {
                 const isExpanded = expandedId === p.id;
                 const displayName = p.user?.name ?? p.guestName ?? (lang === "th" ? "ยังไม่ระบุคน" : "Unassigned");
                 const isGuest = !p.userId && p.guestName;
@@ -278,9 +330,6 @@ export default function ParticipantTable({
                           </p>
                         )}
                       </td>
-                      <td className="p-3 text-right text-muted whitespace-nowrap">
-                        {baht(p.deliveryShare)}
-                      </td>
                       <td className="p-3 text-right font-bold text-brand whitespace-nowrap">
                         {baht(p.amountToPay)}
                       </td>
@@ -289,7 +338,7 @@ export default function ParticipantTable({
                     {/* Single-column, stacked actions panel for mobile view */}
                     {isOwner && isExpanded && (
                       <tr className="bg-muted/10">
-                        <td colSpan={4} className="p-3 bg-muted/20 border-t border-border">
+                        <td colSpan={3} className="p-3 bg-muted/20 border-t border-border">
                           <div className="space-y-3.5">
                             {/* Assignment form */}
                             <div className="space-y-2">
@@ -299,71 +348,78 @@ export default function ParticipantTable({
                                 </svg>
                                 {t("bill.owner")}
                               </p>
-                              
-                              {/* Segment selector toggle */}
-                              <div className="flex rounded-xl border border-border p-0.5 bg-background text-[10px] w-full font-bold">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAssignMode(p.id, "user");
-                                  }}
-                                  className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                                    mode === "user" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
-                                  }`}
-                                >
-                                  {lang === "th" ? "เลือกจากสมาชิก" : "Select Member"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAssignMode(p.id, "guest");
-                                  }}
-                                  className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
-                                    mode === "guest" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
-                                  }`}
-                                >
-                                  {lang === "th" ? "กำหนดเอง (พิมพ์ชื่อ)" : "Custom Name"}
-                                </button>
-                              </div>
 
-                              <form
-                                action={async (fd) => {
-                                  await assignParticipantUser(p.id, fd);
-                                }}
-                                className="space-y-2"
-                                onClick={(e) => e.stopPropagation()} // Prevent closing row
-                              >
-                                {mode === "user" ? (
-                                  <select
-                                    name="userId"
-                                    defaultValue={p.userId ?? ""}
-                                    className="w-full rounded-xl border border-border bg-white px-3 pr-10 py-2.5 text-xs outline-none focus:border-brand"
+                              {postStatus === "OPEN" ? (
+                                <>
+                                  {/* Segment selector toggle */}
+                                  <div className="flex rounded-xl border border-border p-0.5 bg-background text-[10px] w-full font-bold">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAssignMode(p.id, "user");
+                                      }}
+                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
+                                        mode === "user" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+                                      }`}
+                                    >
+                                      {lang === "th" ? "เลือกจากสมาชิก" : "Select Member"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAssignMode(p.id, "guest");
+                                      }}
+                                      className={`flex-1 py-1.5 text-center rounded-lg transition-all ${
+                                        mode === "guest" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+                                      }`}
+                                    >
+                                      {lang === "th" ? "กำหนดเอง (พิมพ์ชื่อ)" : "Custom Name"}
+                                    </button>
+                                  </div>
+
+                                  <form
+                                    action={async (fd) => {
+                                      await assignParticipantUser(p.id, fd);
+                                    }}
+                                    className="space-y-2"
+                                    onClick={(e) => e.stopPropagation()} // Prevent closing row
                                   >
-                                    <option value="">{lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —"}</option>
-                                    {allUsers.map((u) => (
-                                      <option key={u.id} value={u.id}>
-                                        {u.name} ({u.email})
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    name="guestName"
-                                    defaultValue={p.guestName ?? ""}
-                                    placeholder={lang === "th" ? "พิมพ์ชื่อคนจ่ายเอง (ไม่มีบัญชี)" : "Type guest name"}
-                                    className="w-full rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand"
-                                  />
-                                )}
-                                
-                                <button
-                                  type="submit"
-                                  className="w-full rounded-xl bg-brand text-white py-2 px-4 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]"
-                                >
-                                  {t("bill.save")}
-                                </button>
-                              </form>
+                                    {mode === "user" ? (
+                                      <Dropdown
+                                        name="userId"
+                                        defaultValue={p.userId ?? ""}
+                                        placeholder={lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —"}
+                                        options={[
+                                          { value: "", label: lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —" },
+                                          ...allUsers.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` })),
+                                        ]}
+                                      />
+                                    ) : (
+                                      <input
+                                        name="guestName"
+                                        defaultValue={p.guestName ?? ""}
+                                        placeholder={lang === "th" ? "พิมพ์ชื่อคนจ่ายเอง (ไม่มีบัญชี)" : "Type guest name"}
+                                        className="w-full rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand"
+                                      />
+                                    )}
+
+                                    <button
+                                      type="submit"
+                                      className="w-full rounded-xl bg-brand text-white py-2 px-4 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]"
+                                    >
+                                      {t("bill.save")}
+                                    </button>
+                                  </form>
+                                </>
+                              ) : (
+                                <p className="text-xs text-muted italic">
+                                  {lang === "th"
+                                    ? "บิลปิดแล้ว ไม่สามารถแก้ไขผู้รับผิดชอบได้"
+                                    : "Bill is closed — assignment is locked"}
+                                </p>
+                              )}
                             </div>
 
                             {/* Payment actions & delete */}
@@ -379,16 +435,27 @@ export default function ParticipantTable({
                                 onClick={(e) => e.stopPropagation()} // Prevent closing row
                               >
                                 <div className="flex flex-wrap gap-2">
-                                  <Link
-                                    href={`/api/uploads/${p.slipImagePath}`}
-                                    target="_blank"
-                                    className="rounded-xl border border-border bg-white px-3.5 py-2.5 text-xs text-brand font-bold hover:bg-brand/5 shadow-xs inline-flex items-center gap-1.5 transition"
-                                  >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-                                    </svg>
-                                    {t("bill.viewSlip")}
-                                  </Link>
+                                  {p.slipImagePath && (
+                                    <Link
+                                      href={`/api/uploads/${p.slipImagePath}`}
+                                      target="_blank"
+                                      className="rounded-xl border border-border bg-white px-3.5 py-2.5 text-xs text-brand font-bold hover:bg-brand/5 shadow-xs inline-flex items-center gap-1.5 transition"
+                                    >
+                                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                                      </svg>
+                                      {t("bill.viewSlip")}
+                                    </Link>
+                                  )}
+                                  {p.slipImagePath && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setSlipToDelete({ id: p.id, name: p.itemName })}
+                                      className="rounded-xl border border-red-200 bg-white px-3.5 py-2.5 text-xs text-red-600 font-bold hover:bg-red-50 shadow-xs transition"
+                                    >
+                                      {lang === "th" ? "ลบสลิป" : "Delete Slip"}
+                                    </button>
+                                  )}
 
                                   {p.paymentStatus !== "PAID" ? (
                                     <form
@@ -442,11 +509,25 @@ export default function ParticipantTable({
               <tr className="bg-muted/10 font-bold border-t-2 border-border text-foreground">
                 <td className="p-3 text-xs font-bold text-foreground">{t("bill.totalAmount")}</td>
                 <td className="p-3 text-right text-xs whitespace-nowrap">{baht(totalOriginalPrice)}</td>
-                <td className="p-3 text-right text-xs text-muted whitespace-nowrap">{baht(totalDeliveryFee)}</td>
                 <td className="p-3 text-right text-xs text-brand whitespace-nowrap">
                   {baht(totalAmountToPay)}
                 </td>
               </tr>
+              {deliveryFee > 0 && (
+                <tr className="border-t border-border/60 text-muted">
+                  <td colSpan={2} className="p-3 text-xs font-semibold">
+                    {lang === "th"
+                      ? `ค่าส่ง (หาร ${deliveryPersonCount} คน)`
+                      : `Delivery (split ${deliveryPersonCount} ways)`}
+                    <span className="ml-1 font-normal text-[10px]">
+                      {lang === "th" ? `รวม ${baht(deliveryFee)}` : `total ${baht(deliveryFee)}`}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right text-xs font-bold text-foreground whitespace-nowrap">
+                    {lang === "th" ? `คนละ ${baht(perHeadDelivery)}` : `${baht(perHeadDelivery)}/person`}
+                  </td>
+                </tr>
+              )}
             </tfoot>
           )}
         </table>
@@ -456,11 +537,15 @@ export default function ParticipantTable({
       <ShareBillModal
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
+        postId={postId}
+        isOwner={isOwner}
         postTitle={postTitle}
         postNote={postNote}
         ownerName={ownerName}
         ownerQr={ownerQr}
         participants={participants}
+        deliveryFee={deliveryFee}
+        deliveryPersonCount={deliveryPersonCount}
       />
 
       <ConfirmModal
@@ -479,6 +564,24 @@ export default function ParticipantTable({
           }
         }}
         onClose={() => setItemToDelete(null)}
+      />
+
+      <ConfirmModal
+        isOpen={!!slipToDelete}
+        title={lang === "th" ? "ยืนยันการลบสลิป" : "Confirm Delete Slip"}
+        message={
+          lang === "th"
+            ? `ลบสลิปของรายการ "${slipToDelete?.name}"? รายการนี้จะกลับไปเป็นยังไม่จ่าย และเปิดให้แนบสลิปใหม่ได้`
+            : `Delete the slip for "${slipToDelete?.name}"? It will revert to unpaid and can be re-uploaded.`
+        }
+        confirmText={lang === "th" ? "ลบสลิป" : "Delete Slip"}
+        onConfirm={async () => {
+          if (slipToDelete) {
+            await deleteSlip(slipToDelete.id);
+            setSlipToDelete(null);
+          }
+        }}
+        onClose={() => setSlipToDelete(null)}
       />
     </div>
   );
