@@ -111,6 +111,7 @@ export default async function PostDetailPage({
         participants={post.participants}
         allUsers={allUsers}
         isOwner={isOwner}
+        currentUserId={user.id}
         postId={post.id}
         postStatus={post.status}
         deliveryFee={post.deliveryFee}

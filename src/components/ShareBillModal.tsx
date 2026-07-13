@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
+import { groupByPayer } from "@/lib/discount";
 import { getOrCreateShareLink } from "@/actions/posts";
 
 type UserOption = {
@@ -26,7 +27,6 @@ export default function ShareBillModal({
   isOpen,
   onClose,
   postId,
-  isOwner,
   postTitle,
   postNote,
   ownerName,
@@ -38,7 +38,6 @@ export default function ShareBillModal({
   isOpen: boolean;
   onClose: () => void;
   postId: string;
-  isOwner: boolean;
   postTitle: string;
   postNote: string | null;
   ownerName: string;
@@ -55,12 +54,12 @@ export default function ShareBillModal({
   const { t, lang } = useI18n();
 
   useEffect(() => {
-    if (!isOpen || !isOwner) return;
+    if (!isOpen) return;
     setCopied(false);
     getOrCreateShareLink(postId).then((token) => {
       setGuestLink(`${window.location.origin}/share/${token}`);
     });
-  }, [isOpen, isOwner, postId]);
+  }, [isOpen, postId]);
 
   const copyGuestLink = async () => {
     if (!guestLink) return;
@@ -83,8 +82,41 @@ export default function ShareBillModal({
         // Calculate heights dynamically
         const canvasWidth = 375; // Tight SE viewport width target
         const headerHeight = postNote ? 145 : 125;
-        const itemRowHeight = 44;
-        const itemsListHeight = participants.length * itemRowHeight;
+
+        // Wrap long item names so they never run into the price column.
+        const nameMaxWidth = canvasWidth - 60 - 65; // left/right padding + price column
+        const nameLineH = 17;
+        const wrapText = (text: string, maxWidth: number, font: string): string[] => {
+          ctx.font = font;
+          const lines: string[] = [];
+          let cur = "";
+          for (const ch of text) {
+            const test = cur + ch;
+            if (ctx.measureText(test).width > maxWidth && cur) {
+              lines.push(cur);
+              cur = ch;
+            } else {
+              cur = test;
+            }
+          }
+          if (cur) lines.push(cur);
+          const capped = lines.slice(0, 3);
+          if (lines.length > 3) capped[2] = capped[2].replace(/.$/, "…");
+          return capped.length ? capped : [text];
+        };
+        const itemHeight = (lines: string[]) => 8 + lines.length * nameLineH + 20;
+        const groupHeaderH = 26;
+        const subtotalH = 24;
+        // Group items by payer; precompute wrapped name lines + per-person subtotal.
+        const groups = groupByPayer(participants).map((g) => ({
+          ...g,
+          lines: g.items.map((p) => wrapText(p.itemName, nameMaxWidth, "bold 14px sans-serif")),
+          subtotal: g.items.reduce((s, p) => s + p.amountToPay, 0),
+        }));
+        const itemsListHeight = groups.reduce(
+          (s, g) => s + groupHeaderH + g.lines.reduce((a, l) => a + itemHeight(l), 0) + subtotalH,
+          0
+        );
         const totalsSectionHeight = deliveryFee > 0 ? 130 : 110;
         const qrSectionHeight = ownerQr ? 245 : 70;
         const footerHeight = 40;
@@ -164,40 +196,54 @@ export default function ShareBillModal({
         // Draw items divider
         drawDivider(dividerY + 30);
 
-        // 6. Draw Menu Items
+        // 6. Draw Menu Items grouped by payer
         let currentY = dividerY + 30;
-        ctx.textAlign = "left";
 
-        for (const p of participants) {
-          const displayName = p.user?.name ?? p.guestName ?? (lang === "th" ? "ยังไม่ระบุคน" : "Unassigned");
-          const isGuest = !p.userId && p.guestName;
-          const isUnassigned = !p.userId && !p.guestName;
-
-          // Item Name (Left)
-          ctx.font = "bold 14px sans-serif";
-          ctx.fillStyle = "#1f2937";
+        for (const g of groups) {
+          // Payer header
+          ctx.font = "bold 13px sans-serif";
+          ctx.fillStyle = "#111827";
           ctx.textAlign = "left";
-          ctx.fillText(p.itemName, 30, currentY + 20);
+          ctx.fillText(g.name, 30, currentY + 16);
+          currentY += groupHeaderH;
 
-          // Sub-details (Payee name + Price breakdown)
-          let breakdown = `฿${p.price.toFixed(2)}`;
-          if (p.discountShare > 0) breakdown += ` · ${lang === "th" ? "ลด" : "disc"} ฿${p.discountShare.toFixed(2)}`;
+          g.items.forEach((p, i) => {
+            const lines = g.lines[i];
 
-          ctx.font = "11px sans-serif";
-          ctx.fillStyle = isUnassigned
-            ? "#9ca3af"
-            : isGuest
-            ? "#d97706" // amber-600
-            : "#16a34a"; // brand green
-          ctx.fillText(`${lang === "th" ? "ผู้จ่าย" : "Payer"}: ${displayName} (${breakdown})`, 30, currentY + 35);
+            // Item name (wrapped, indented under the payer)
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillStyle = "#1f2937";
+            ctx.textAlign = "left";
+            lines.forEach((ln, li) => ctx.fillText(ln, 42, currentY + 20 + li * nameLineH));
 
-          // Total amount (Right)
-          ctx.font = "bold 14px sans-serif";
+            // Total amount (right, aligned to first line)
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillStyle = "#16a34a";
+            ctx.textAlign = "right";
+            ctx.fillText(`฿${p.amountToPay.toFixed(2)}`, canvasWidth - 30, currentY + 20);
+
+            // Price breakdown (grey, below the name)
+            let breakdown = `฿${p.price.toFixed(2)}`;
+            if (p.discountShare > 0) breakdown += ` · ${lang === "th" ? "ลด" : "disc"} ฿${p.discountShare.toFixed(2)}`;
+            ctx.font = "11px sans-serif";
+            ctx.fillStyle = "#9ca3af";
+            ctx.textAlign = "left";
+            ctx.fillText(breakdown, 42, currentY + 20 + lines.length * nameLineH);
+
+            currentY += itemHeight(lines);
+          });
+
+          // Per-payer subtotal
+          drawDivider(currentY + 2);
+          ctx.font = "bold 12px sans-serif";
+          ctx.fillStyle = "#374151";
+          ctx.textAlign = "left";
+          ctx.fillText(`${lang === "th" ? "รวม" : "Subtotal"} ${g.name}`, 30, currentY + 19);
+          ctx.font = "bold 13px sans-serif";
           ctx.fillStyle = "#16a34a";
           ctx.textAlign = "right";
-          ctx.fillText(`฿${p.amountToPay.toFixed(2)}`, canvasWidth - 30, currentY + 25);
-
-          currentY += itemRowHeight;
+          ctx.fillText(`฿${g.subtotal.toFixed(2)}`, canvasWidth - 30, currentY + 19);
+          currentY += subtotalH;
         }
 
         // 7. Grand Total Section
@@ -315,8 +361,8 @@ export default function ShareBillModal({
           </button>
         </div>
 
-        {/* Guest link — no-account members can join via this URL */}
-        {isOwner && (
+        {/* Guest link — anyone can share; no-account members join via this URL */}
+        {(
           <div className="rounded-xl bg-background/80 p-3 border border-border/50 space-y-1.5">
             <p className="text-xs font-bold text-foreground">
               {lang === "th" ? "ลิงก์เชิญเพื่อน (ไม่ต้องล็อกอิน)" : "Invite link (no login needed)"}

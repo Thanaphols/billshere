@@ -9,7 +9,7 @@ const PUBLIC_PREFIXES = ["/login", "/register", "/api/health", "/share"];
 const isPublicStream = (pathname: string) =>
   /^\/api\/posts\/[^/]+\/stream$/.test(pathname);
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isPublic =

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { type PostCardData } from "@/components/PostCard";
 import PagedPostList from "@/components/PagedPostList";
+import EmptyBillGuide from "@/components/EmptyBillGuide";
+import LiveRefresh from "@/components/LiveRefresh";
 import { cookies } from "next/headers";
 import { t } from "@/lib/i18n-dict";
 
@@ -79,6 +81,7 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-5">
+      <LiveRefresh />
       {/* Status Filter Pills at top of page */}
       <div className="flex gap-2 text-[11px] font-bold bg-surface p-2.5 rounded-2xl shadow-xs">
         <Link
@@ -124,10 +127,9 @@ export default async function DashboardPage({
           initialPosts={ownedCards}
           type="owned"
           status={activeStatus}
+          emptyContent={activeStatus === "all" ? <EmptyBillGuide lang={lang} /> : undefined}
           emptyText={
-            activeStatus === "all"
-              ? t("bill.empty.owned", lang)
-              : lang === "th"
+            lang === "th"
               ? "ไม่พบรายการบิลที่สร้างในสถานะนี้"
               : "No bills created with this status"
           }

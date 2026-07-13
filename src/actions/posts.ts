@@ -6,7 +6,7 @@ import type { DiscountType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { computeBill, ownerKeyOf } from "@/lib/discount";
-import { notifyPostUpdate } from "@/lib/events";
+import { notifyPostUpdate, notifyFeed } from "@/lib/events";
 import { deleteSlipFile } from "@/lib/uploads";
 
 function str(fd: FormData, key: string): string {
@@ -74,6 +74,7 @@ export async function createPost(formData: FormData): Promise<void> {
   const post = await prisma.post.create({
     data: { ownerId: user.id, title, note },
   });
+  notifyFeed();
   redirect(`/posts/${post.id}`);
 }
 
@@ -124,43 +125,39 @@ export async function updatePostTitleNote(
   notifyPostUpdate(postId);
 }
 
-/** Add a menu item (name + price) — with optional person assignment. */
-export async function addMenuItem(
+export type NewMenuItem = {
+  itemName: string;
+  price: number;
+  quantity: number;
+  userId?: string | null;
+  guestName?: string | null;
+};
+
+/** Add several menu items at once (name + price + qty + optional owner). */
+export async function addMenuItems(
   postId: string,
-  formData: FormData
+  items: NewMenuItem[]
 ): Promise<void> {
   await assertOwner(postId);
-  const itemName = str(formData, "itemName") || "-";
-  const price = num(formData, "price");
-  if (price <= 0) return;
 
-  const userId = str(formData, "userId");
-  const guestName = str(formData, "guestName");
-  const quantity = Math.max(1, Math.floor(num(formData, "quantity")) || 1);
-
-  if (quantity === 1) {
-    await prisma.participant.create({
-      data: {
-        postId,
-        itemName,
-        price,
-        userId: userId || null,
-        guestName: userId ? null : (guestName || null),
-      },
-    });
-  } else {
-    const dataToCreate = Array.from({ length: quantity }).map((_, index) => ({
+  const rows = items.flatMap((it) => {
+    const price = Number(it.price);
+    if (!Number.isFinite(price) || price <= 0) return [];
+    const itemName = (it.itemName || "").trim() || "-";
+    const qty = Math.max(1, Math.floor(Number(it.quantity)) || 1);
+    const userId = it.userId || null;
+    const guestName = userId ? null : (it.guestName || "").trim() || null;
+    return Array.from({ length: qty }, (_, i) => ({
       postId,
-      itemName: `${itemName} (${index + 1}/${quantity})`,
+      itemName: qty === 1 ? itemName : `${itemName} (${i + 1}/${qty})`,
       price,
-      userId: userId || null,
-      guestName: userId ? null : (guestName || null),
+      userId,
+      guestName,
     }));
-    await prisma.participant.createMany({
-      data: dataToCreate,
-    });
-  }
+  });
 
+  if (rows.length === 0) return;
+  await prisma.participant.createMany({ data: rows });
   await recompute(postId);
   revalidatePath(`/posts/${postId}`);
   notifyPostUpdate(postId);
@@ -271,6 +268,49 @@ export async function unclaimParticipant(participantId: string): Promise<void> {
   notifyPostUpdate(p.postId);
 }
 
+/**
+ * Batch self-claim: set the current user as owner of exactly `participantIds`
+ * among the post's claimable rows, and release any row currently theirs that is
+ * no longer selected (checkbox = final state). Locked/other-owned rows untouched.
+ */
+export async function syncMyClaims(
+  postId: string,
+  participantIds: string[]
+): Promise<void> {
+  const user = await requireUser();
+  const post = await prisma.post.findUnique({ where: { id: postId } });
+  if (!post || post.deletedAt) throw new Error("NOT_FOUND");
+  if (post.status === "CLOSED") throw new Error("BILL_CLOSED");
+
+  const wanted = new Set(participantIds);
+  const rows = await prisma.participant.findMany({ where: { postId } });
+
+  const toClaim: string[] = [];
+  const toRelease: string[] = [];
+  for (const p of rows) {
+    if (p.slipImagePath) continue; // locked — never touch
+    const mine = p.userId === user.id;
+    const claimable = mine || (p.userId === null && p.guestName === null);
+    if (!claimable) continue;
+    if (wanted.has(p.id) && !mine) toClaim.push(p.id);
+    else if (!wanted.has(p.id) && mine) toRelease.push(p.id);
+  }
+
+  await prisma.$transaction([
+    prisma.participant.updateMany({
+      where: { id: { in: toClaim } },
+      data: { userId: user.id, guestName: null, guestClaimToken: null },
+    }),
+    prisma.participant.updateMany({
+      where: { id: { in: toRelease }, userId: user.id },
+      data: { userId: null },
+    }),
+  ]);
+
+  revalidatePath(`/posts/${postId}`);
+  notifyPostUpdate(postId);
+}
+
 export async function removeParticipant(
   participantId: string
 ): Promise<void> {
@@ -317,9 +357,11 @@ export async function markUnpaid(participantId: string): Promise<void> {
   notifyPostUpdate(p.postId);
 }
 
-/** Owner-only: get the post's public guest-share token, generating one if it doesn't exist yet. */
+/** Any logged-in user may share the bill: get its guest-share token, generating one if needed. */
 export async function getOrCreateShareLink(postId: string): Promise<string> {
-  const post = await assertOwner(postId);
+  await requireUser();
+  const post = await prisma.post.findUnique({ where: { id: postId } });
+  if (!post || post.deletedAt) throw new Error("NOT_FOUND");
   if (post.shareToken) return post.shareToken;
 
   const token = crypto.randomUUID();
@@ -427,6 +469,7 @@ export async function deletePost(postId: string): Promise<void> {
     data: { deletedAt: new Date() },
   });
 
+  notifyFeed();
   revalidatePath("/");
   redirect("/");
 }
@@ -442,6 +485,7 @@ export async function restorePost(postId: string): Promise<void> {
     data: { deletedAt: null },
   });
 
+  notifyFeed();
   revalidatePath("/bin");
   revalidatePath("/");
   redirect(`/posts/${postId}`);

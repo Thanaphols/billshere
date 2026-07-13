@@ -61,6 +61,16 @@ export const translations = {
     "bill.reopenBill": "เปิดบิลอีกครั้ง",
     "bill.status.open": "เปิด",
     "bill.status.closed": "ปิดแล้ว",
+    "onboard.title": "เริ่มหารบิลใน 3 ขั้น",
+    "onboard.step1": "สร้างบิล — กด + ใส่ชื่อร้าน/มื้อ",
+    "onboard.step2": "เพิ่มเมนู แล้วแท็กคนที่ต้องจ่าย",
+    "onboard.step3": "แชร์ลิงก์ — เพื่อนเห็น QR พร้อมยอดของตัวเอง",
+    "onboard.cta": "สร้างบิลแรก",
+    "help.title": "วิธีใช้งาน",
+    "help.tip.fees": "ส่วนลดและค่าส่งตั้งได้ทีหลังในหน้าตั้งค่าบิล",
+    "help.aria": "วิธีใช้งาน",
+    "bill.claim.confirm": "ยืนยันการเลือกลงชื่อเมนู",
+    "bill.claim.hint": "ติ๊กเมนูที่เป็นของคุณ แล้วกดยืนยัน",
   },
   en: {
     "bill.my": "My Bills",
@@ -124,6 +134,16 @@ export const translations = {
     "bill.reopenBill": "Reopen this bill",
     "bill.status.open": "Open",
     "bill.status.closed": "Closed",
+    "onboard.title": "Split a bill in 3 steps",
+    "onboard.step1": "Create a bill — tap + and name it",
+    "onboard.step2": "Add items, then tag who pays",
+    "onboard.step3": "Share the link — friends see a QR with their own total",
+    "onboard.cta": "Create your first bill",
+    "help.title": "How it works",
+    "help.tip.fees": "Set discount and delivery later in bill settings",
+    "help.aria": "How it works",
+    "bill.claim.confirm": "Confirm selection",
+    "bill.claim.hint": "Tick the items that are yours, then confirm",
   }
 };
 

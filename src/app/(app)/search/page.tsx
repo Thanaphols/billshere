@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { type PostCardData } from "@/components/PostCard";
 import PagedPostList from "@/components/PagedPostList";
+import LiveRefresh from "@/components/LiveRefresh";
 import { cookies } from "next/headers";
 import { t } from "@/lib/i18n-dict";
 
@@ -68,6 +69,7 @@ export default async function SearchPage({
 
   return (
     <div className="space-y-4">
+      <LiveRefresh />
       <h2 className="text-lg font-semibold">{t("bill.search", lang)}</h2>
       
       <form method="get" className="flex gap-2">

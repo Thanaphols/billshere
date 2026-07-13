@@ -94,6 +94,53 @@ export async function unclaimAsGuest(
   notifyPostUpdate(post.id);
 }
 
+/**
+ * Batch guest claim: set this guest (name + cookie token) as owner of exactly
+ * `participantIds` among claimable rows, releasing any row of theirs no longer
+ * selected. One shared name for all selected rows. Locked/other rows untouched.
+ */
+export async function syncGuestClaims(
+  shareToken: string,
+  participantIds: string[],
+  name: string
+): Promise<void> {
+  const post = await loadPostByToken(shareToken);
+  if (post.status === "CLOSED") throw new Error("BILL_CLOSED");
+
+  const guestName = name.trim();
+  if (participantIds.length > 0 && !guestName) throw new Error("NAME_REQUIRED");
+
+  const guestId = await getOrCreateGuestId(shareToken);
+  const wanted = new Set(participantIds);
+  const rows = await prisma.participant.findMany({ where: { postId: post.id } });
+
+  const toClaim: string[] = [];
+  const toRelease: string[] = [];
+  for (const p of rows) {
+    if (p.slipImagePath) continue; // locked
+    const mine = p.guestClaimToken === guestId;
+    const claimable =
+      mine || (p.userId === null && p.guestName === null && p.guestClaimToken === null);
+    if (!claimable) continue;
+    if (wanted.has(p.id)) toClaim.push(p.id); // re-set name even if already mine
+    else if (mine) toRelease.push(p.id);
+  }
+
+  await prisma.$transaction([
+    prisma.participant.updateMany({
+      where: { id: { in: toClaim } },
+      data: { guestName, guestClaimToken: guestId, userId: null },
+    }),
+    prisma.participant.updateMany({
+      where: { id: { in: toRelease }, guestClaimToken: guestId },
+      data: { guestName: null, guestClaimToken: null },
+    }),
+  ]);
+
+  revalidatePath(`/share/${shareToken}`);
+  notifyPostUpdate(post.id);
+}
+
 /** Guest uploads one slip covering every item they've claimed on this bill. */
 export async function uploadSlipAsGuest(
   shareToken: string,

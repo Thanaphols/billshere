@@ -90,6 +90,60 @@ export function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+export type PayerRow = {
+  userId: string | null;
+  guestName: string | null;
+  user?: { name: string } | null;
+};
+
+export type PayerGroup<T> = {
+  name: string;
+  kind: "user" | "guest" | "unassigned";
+  items: T[];
+};
+
+/**
+ * Group rows by who pays: one group per member (userId) and per guest name,
+ * with every unassigned row collapsed into a single trailing "ยังไม่ระบุคน" group.
+ * Groups keep first-seen order; the unassigned group is always last.
+ */
+export function groupByPayer<T extends PayerRow>(rows: T[]): PayerGroup<T>[] {
+  const groups: PayerGroup<T>[] = [];
+  const byKey = new Map<string, PayerGroup<T>>();
+
+  for (const r of rows) {
+    let key: string;
+    let name: string;
+    let kind: PayerGroup<T>["kind"];
+    if (r.userId) {
+      key = "u:" + r.userId;
+      name = r.user?.name ?? "สมาชิก";
+      kind = "user";
+    } else if (r.guestName) {
+      key = "n:" + r.guestName;
+      name = r.guestName;
+      kind = "guest";
+    } else {
+      key = "unassigned";
+      name = "ยังไม่ระบุคน";
+      kind = "unassigned";
+    }
+    let g = byKey.get(key);
+    if (!g) {
+      g = { name, kind, items: [] };
+      byKey.set(key, g);
+      groups.push(g);
+    }
+    g.items.push(r);
+  }
+
+  return groups.sort((a, b) => {
+    const au = a.kind === "unassigned" ? 1 : 0;
+    const bu = b.kind === "unassigned" ? 1 : 0;
+    return au - bu; // stable: only pushes unassigned to the end
+  });
+}
+
 /** Group key for a participant row — rows sharing a payer collapse to one key. */
 export function ownerKeyOf(p: {
   id: string;
@@ -133,6 +187,18 @@ export function demo(): void {
     { discountType: "PERCENT", discountValue: 40, deliveryFee: 30, personCount: 2 }
   );
   console.assert(round2(m[0].amountToPay + m[1].amountToPay) === 135, "p1 multi-row sum 135", m);
+
+  // groupByPayer: unassigned rows collapse into one trailing group.
+  const g = groupByPayer([
+    { userId: "u1", guestName: null, user: { name: "A" } },
+    { userId: null, guestName: null },
+    { userId: "u1", guestName: null, user: { name: "A" } },
+    { userId: null, guestName: "B" },
+    { userId: null, guestName: null },
+  ]);
+  console.assert(g.length === 3, "3 groups (A, B, unassigned)", g);
+  console.assert(g[0].name === "A" && g[0].items.length === 2, "A has 2", g);
+  console.assert(g[2].kind === "unassigned" && g[2].items.length === 2, "unassigned last, 2 rows", g);
 
   console.log("discount.demo OK");
 }

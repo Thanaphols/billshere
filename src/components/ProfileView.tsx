@@ -117,17 +117,15 @@ export default function ProfileView({
         <span className="text-muted">›</span>
       </Link>
 
-      {/* Logout Card */}
-      <div className="rounded-2xl bg-surface p-4 shadow-sm">
-        <form action={logoutAction}>
-          <button
-            type="submit"
-            className="w-full rounded-xl border border-red-200 bg-red-50 py-3 text-sm font-bold text-red-600 hover:bg-red-100 transition active:scale-[.98]"
-          >
-            {t("profile.logout")}
-          </button>
-        </form>
-      </div>
+      {/* Logout */}
+      <form action={logoutAction}>
+        <button
+          type="submit"
+          className="w-full rounded-2xl border border-red-200 bg-red-50 py-4 text-sm font-bold text-red-600 shadow-sm hover:bg-red-100 transition active:scale-[.98]"
+        >
+          {t("profile.logout")}
+        </button>
+      </form>
 
       {/* Edit Profile Modal */}
       {isEditOpen && (

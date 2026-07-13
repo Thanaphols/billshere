@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import BinBillModal from "@/components/BinBillModal";
+import LiveRefresh from "@/components/LiveRefresh";
 
 export default async function BinPage() {
   const user = await getCurrentUser();
@@ -22,6 +23,7 @@ export default async function BinPage() {
 
   return (
     <div className="space-y-4">
+      <LiveRefresh />
       <div className="flex items-center gap-2">
         <Link href="/profile" className="text-muted text-lg leading-none">‹</Link>
         <h2 className="text-lg font-semibold">{lang === "th" ? "ถังขยะ" : "Bin"}</h2>

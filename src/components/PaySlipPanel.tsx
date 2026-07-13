@@ -3,7 +3,6 @@
 import { useActionState, useState, useRef, useEffect } from "react";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import { claimParticipant, unclaimParticipant } from "@/actions/posts";
 import { uploadSlip, type SlipState } from "@/actions/slips";
 import QrView from "@/components/QrView";
 
@@ -33,11 +32,12 @@ export default function PaySlipPanel({
   myAmount: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { lang } = useI18n();
 
+  // Rows this user signed up for (claim happens in the menu table now).
+  const hasClaims = participants.some((p) => p.userId === currentUserId);
   const uploadable = participants.filter(
     (p) => p.userId === currentUserId && !p.slipImagePath
   );
@@ -47,21 +47,6 @@ export default function PaySlipPanel({
     uploadSlip.bind(null, uploadIds),
     undefined
   );
-
-  const toggleClaim = async (p: ParticipantRow) => {
-    setPendingId(p.id);
-    try {
-      if (p.userId === currentUserId) {
-        await unclaimParticipant(p.id);
-      } else {
-        await claimParticipant(p.id);
-      }
-    } catch {
-      // SSE refresh will resync state either way; nothing to show here.
-    } finally {
-      setPendingId(null);
-    }
-  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -107,19 +92,21 @@ export default function PaySlipPanel({
         </p>
       )}
 
-      <button
-        onClick={() => setIsOpen(true)}
-        className="mt-3 w-full rounded-xl border border-brand bg-white px-4 py-2.5 text-sm font-bold text-brand hover:bg-brand/5 active:scale-[.98] transition"
-      >
-        {lang === "th" ? "แนบสลิปการโอน" : "Attach Transfer Slip"}
-      </button>
+      {hasClaims && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="mt-3 w-full rounded-xl border border-brand bg-white px-4 py-2.5 text-sm font-bold text-brand hover:bg-brand/5 active:scale-[.98] transition"
+        >
+          {lang === "th" ? "แนบสลิปการโอน" : "Attach Transfer Slip"}
+        </button>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl border border-border flex flex-col space-y-4">
             <div className="flex items-center justify-between border-b border-border pb-2.5">
               <h3 className="text-sm font-bold text-foreground">
-                {lang === "th" ? "เลือกเมนูของคุณ" : "Select your items"}
+                {lang === "th" ? "แนบสลิปสำหรับเมนูของคุณ" : "Attach slip for your items"}
               </h3>
               <button onClick={handleClose} className="text-muted hover:text-foreground text-xs font-semibold">
                 ✕
@@ -133,41 +120,23 @@ export default function PaySlipPanel({
             ) : (
               <>
                 <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                  {participants.map((p) => {
-                    const mine = p.userId === currentUserId;
-                    const locked = !!p.slipImagePath;
-                    const claimable = mine || (p.userId === null && p.guestName === null);
-                    const disabled = pendingId === p.id || locked || !claimable;
-                    const reason = locked
-                      ? lang === "th" ? "แนบสลิปแล้ว" : "Slip already attached"
-                      : !claimable
-                      ? lang === "th"
-                        ? `ถูกกำหนดให้ ${p.user?.name ?? p.guestName} แล้ว`
-                        : `Already assigned to ${p.user?.name ?? p.guestName}`
-                      : null;
-
-                    return (
-                      <label
+                  {uploadable.length === 0 ? (
+                    <p className="text-xs text-muted text-center py-4">
+                      {lang === "th"
+                        ? "ทุกเมนูของคุณแนบสลิปแล้ว"
+                        : "All your items already have a slip"}
+                    </p>
+                  ) : (
+                    uploadable.map((p) => (
+                      <div
                         key={p.id}
-                        className={`flex items-center gap-2.5 rounded-xl border border-border p-2.5 ${
-                          disabled ? "opacity-50" : "cursor-pointer hover:bg-muted/10"
-                        }`}
+                        className="flex items-center justify-between rounded-xl border border-border p-2.5"
                       >
-                        <input
-                          type="checkbox"
-                          checked={mine && !locked}
-                          disabled={disabled}
-                          onChange={() => toggleClaim(p)}
-                          className="w-4 h-4 accent-brand shrink-0"
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-semibold text-foreground">{p.itemName}</span>
-                          {reason && <span className="block text-[10px] text-muted">{reason}</span>}
-                        </span>
+                        <span className="truncate text-xs font-semibold text-foreground">{p.itemName}</span>
                         <span className="text-xs font-bold text-foreground shrink-0">{baht(p.amountToPay)}</span>
-                      </label>
-                    );
-                  })}
+                      </div>
+                    ))
+                  )}
                 </div>
 
                 <form action={formAction} className="space-y-3">

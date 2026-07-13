@@ -3,7 +3,7 @@
 import { useActionState, useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { baht, paymentLabel } from "@/lib/format";
-import { claimAsGuest, unclaimAsGuest, uploadSlipAsGuest } from "@/actions/guest";
+import { syncGuestClaims, uploadSlipAsGuest } from "@/actions/guest";
 import type { SlipState } from "@/actions/slips";
 import QrView from "@/components/QrView";
 
@@ -46,11 +46,37 @@ export default function GuestBillView({
   const closed = postStatus === "CLOSED";
   const mine = new Set(myParticipantIds);
 
-  const [names, setNames] = useState<Record<string, string>>({});
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  // Existing name from any row I already claimed, to prefill the single input.
+  const existingName =
+    participants.find((p) => mine.has(p.id))?.guestName ?? "";
+  const myKey = myParticipantIds.join(",");
+
+  const [name, setName] = useState(existingName);
+  const [selected, setSelected] = useState<Set<string>>(new Set(myParticipantIds));
+  const [claimPending, setClaimPending] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Resync selection + name with server truth after refresh / confirm.
+  useEffect(() => {
+    setSelected(new Set(myKey ? myKey.split(",") : []));
+    if (existingName) setName(existingName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myKey]);
+
+  const toggleSel = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const claimDirty =
+    selected.size !== myParticipantIds.length ||
+    myParticipantIds.some((id) => !selected.has(id)) ||
+    name.trim() !== existingName;
 
   const uploadable = participants.filter((p) => mine.has(p.id) && !p.slipImagePath);
   const uploadIds = uploadable.map((p) => p.id);
@@ -68,27 +94,15 @@ export default function GuestBillView({
     return () => eventSource.close();
   }, [postId, router]);
 
-  const handleClaim = async (participantId: string) => {
-    const name = (names[participantId] || "").trim();
-    if (!name) return;
-    setPendingId(participantId);
+  const confirmClaims = async () => {
+    if (selected.size > 0 && !name.trim()) return;
+    setClaimPending(true);
     try {
-      await claimAsGuest(shareToken, participantId, name);
+      await syncGuestClaims(shareToken, [...selected], name.trim());
     } catch {
       // SSE refresh resyncs state either way.
     } finally {
-      setPendingId(null);
-    }
-  };
-
-  const handleUnclaim = async (participantId: string) => {
-    setPendingId(participantId);
-    try {
-      await unclaimAsGuest(shareToken, participantId);
-    } catch {
-      // SSE refresh resyncs state either way.
-    } finally {
-      setPendingId(null);
+      setClaimPending(false);
     }
   };
 
@@ -129,63 +143,71 @@ export default function GuestBillView({
 
       <div className="rounded-2xl bg-surface p-4 shadow-sm space-y-2">
         <h3 className="text-sm font-semibold text-foreground mb-1">รายการทั้งหมด</h3>
+
+        {!closed && (
+          <input
+            type="text"
+            placeholder="ชื่อของคุณ"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full rounded-lg border border-border px-3 py-2 text-xs outline-none focus:border-brand"
+          />
+        )}
+
         {participants.map((p) => {
           const isMine = mine.has(p.id);
           const isUnassigned = !p.userId && !p.guestName && !p.guestClaimToken;
           const locked = !!p.slipImagePath;
           const displayName = p.user?.name ?? p.guestName ?? null;
-          const disabled = pendingId === p.id || closed;
+          const selectable = !closed && !locked && (isMine || isUnassigned);
 
           return (
-            <div key={p.id} className="rounded-xl border border-border p-2.5 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                  {p.itemName}
-                </span>
-                <span className="shrink-0 text-xs font-bold text-foreground">{baht(p.amountToPay)}</span>
-              </div>
-
-              {isUnassigned && !closed ? (
-                <div className="flex gap-1.5">
-                  <input
-                    type="text"
-                    placeholder="ชื่อของคุณ"
-                    value={names[p.id] || ""}
-                    onChange={(e) => setNames((s) => ({ ...s, [p.id]: e.target.value }))}
-                    disabled={disabled}
-                    className="min-w-0 flex-1 rounded-lg border border-border px-2 py-1 text-xs"
-                  />
-                  <button
-                    onClick={() => handleClaim(p.id)}
-                    disabled={disabled || !(names[p.id] || "").trim()}
-                    className="shrink-0 rounded-lg bg-brand px-2.5 text-xs font-bold text-white disabled:opacity-50"
-                  >
-                    จองรายการนี้
-                  </button>
-                </div>
-              ) : isMine ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-brand font-semibold">
-                    คุณจองไว้ · {locked ? paymentLabel(p.paymentStatus) : "ยังไม่แนบสลิป"}
-                  </span>
-                  {!locked && !closed && (
-                    <button
-                      onClick={() => handleUnclaim(p.id)}
-                      disabled={disabled}
-                      className="text-[10px] font-semibold text-red-600 disabled:opacity-50"
-                    >
-                      ยกเลิก
-                    </button>
-                  )}
-                </div>
+            <label
+              key={p.id}
+              className={`flex items-center gap-2.5 rounded-xl border border-border p-2.5 ${
+                selectable ? "cursor-pointer hover:bg-muted/10" : ""
+              }`}
+            >
+              {selectable ? (
+                <input
+                  type="checkbox"
+                  checked={selected.has(p.id)}
+                  onChange={() => toggleSel(p.id)}
+                  className="w-4 h-4 shrink-0 accent-brand"
+                />
+              ) : locked && isMine ? (
+                <input type="checkbox" checked disabled className="w-4 h-4 shrink-0 accent-brand" />
               ) : (
-                <span className="text-[10px] text-muted">
-                  {displayName ? `ถูกจองโดย ${displayName}` : "มีคนอื่นจองไว้แล้ว"}
-                </span>
+                <span className="w-4 shrink-0" />
               )}
-            </div>
+
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold text-foreground">{p.itemName}</span>
+                {locked && isMine ? (
+                  <span className="block text-[10px] text-brand font-semibold">
+                    คุณจองไว้ · {paymentLabel(p.paymentStatus)}
+                  </span>
+                ) : !isMine && !isUnassigned ? (
+                  <span className="block text-[10px] text-muted">
+                    {displayName ? `ถูกจองโดย ${displayName}` : "มีคนอื่นจองไว้แล้ว"}
+                  </span>
+                ) : null}
+              </span>
+
+              <span className="shrink-0 text-xs font-bold text-foreground">{baht(p.amountToPay)}</span>
+            </label>
           );
         })}
+
+        {!closed && (
+          <button
+            onClick={confirmClaims}
+            disabled={!claimDirty || claimPending || (selected.size > 0 && !name.trim())}
+            className="w-full rounded-xl bg-brand py-2.5 text-xs font-bold text-white transition active:scale-[.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            ยืนยันการเลือกลงชื่อเมนู
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl bg-surface p-4 shadow-sm">
@@ -202,7 +224,7 @@ export default function GuestBillView({
           <p className="text-sm text-muted">จองรายการของคุณด้านบนก่อน เพื่อดูยอดที่ต้องจ่าย</p>
         )}
 
-        {myAmount > 0 && !closed && (
+        {myParticipantIds.length > 0 && !closed && (
           <button
             onClick={() => setIsUploadOpen(true)}
             className="mt-3 w-full rounded-xl border border-brand bg-white px-4 py-2.5 text-sm font-bold text-brand hover:bg-brand/5 active:scale-[.98] transition"

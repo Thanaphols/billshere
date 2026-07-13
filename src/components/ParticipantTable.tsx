@@ -4,18 +4,20 @@ import React, { useState, useEffect, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { baht } from "@/lib/format";
+import { groupByPayer } from "@/lib/discount";
 import AddMenuItemForm from "@/components/AddMenuItemForm";
 import ShareBillModal from "@/components/ShareBillModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import Dropdown from "@/components/Dropdown";
 import { useI18n } from "@/lib/i18n";
 import {
-  addMenuItem,
+  addMenuItems,
   editMenuItem,
   assignParticipantUser,
   removeParticipant,
   markPaid,
   markUnpaid,
+  syncMyClaims,
 } from "@/actions/posts";
 import { deleteSlip } from "@/actions/slips";
 
@@ -43,6 +45,7 @@ export default function ParticipantTable({
   participants,
   allUsers,
   isOwner,
+  currentUserId,
   postId,
   postStatus,
   deliveryFee,
@@ -55,6 +58,7 @@ export default function ParticipantTable({
   participants: ParticipantData[];
   allUsers: UserOption[];
   isOwner: boolean;
+  currentUserId: string;
   postId: string;
   postStatus: "OPEN" | "CLOSED";
   deliveryFee: number;
@@ -75,6 +79,35 @@ export default function ParticipantTable({
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const { t, lang } = useI18n();
+
+  // Non-owner self-claim: tick your items, then confirm (batch sync).
+  const claimCol = !isOwner && postStatus === "OPEN";
+  const colCount = claimCol ? 4 : 3;
+  const myIds = participants.filter((p) => p.userId === currentUserId).map((p) => p.id);
+  const myKey = myIds.join(",");
+  const [selected, setSelected] = useState<Set<string>>(new Set(myIds));
+  const [claimPending, startClaim] = useTransition();
+  // Resync selection with server truth on refresh / after a confirm.
+  useEffect(() => {
+    setSelected(new Set(myKey ? myKey.split(",") : []));
+  }, [myKey]);
+  const toggleSel = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const claimDirty =
+    selected.size !== myIds.length || myIds.some((id) => !selected.has(id));
+  const confirmClaims = () =>
+    startClaim(async () => {
+      try {
+        await syncMyClaims(postId, [...selected]);
+      } catch {
+        // SSE refresh resyncs either way.
+      }
+    });
 
   useEffect(() => {
     const eventSource = new EventSource(`/api/posts/${postId}/stream`);
@@ -190,8 +223,8 @@ export default function ParticipantTable({
             </button>
           </div>
           <AddMenuItemForm
-            action={async (fd) => {
-              await addMenuItem(postId, fd);
+            action={async (items) => {
+              await addMenuItems(postId, items);
               setShowAddForm(false);
             }}
             allUsers={allUsers}
@@ -231,7 +264,8 @@ export default function ParticipantTable({
         <table className="w-full text-xs text-left border-collapse table-fixed">
           <thead>
             <tr className="bg-background text-muted uppercase tracking-wider border-b border-border">
-              <th className="p-3 font-semibold w-[46%]">{lang === "th" ? "รายการ (ผู้จ่าย)" : "Item (Payer)"}</th>
+              {claimCol && <th className="p-3 w-9" aria-label="select" />}
+              <th className={`p-3 font-semibold ${claimCol ? "w-[40%]" : "w-[46%]"}`}>{lang === "th" ? "รายการ (ผู้จ่าย)" : "Item (Payer)"}</th>
               <th className="p-3 text-right font-semibold w-[27%]">{t("bill.amount")}</th>
               <th className="p-3 text-right font-semibold w-[27%]">{t("bill.total")}</th>
             </tr>
@@ -239,18 +273,27 @@ export default function ParticipantTable({
           <tbody>
             {participants.length === 0 ? (
               <tr>
-                <td colSpan={3} className="p-8 text-center text-sm text-muted">
+                <td colSpan={colCount} className="p-8 text-center text-sm text-muted">
                   {t("bill.empty")}
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={3} className="p-8 text-center text-sm text-muted">
+                <td colSpan={colCount} className="p-8 text-center text-sm text-muted">
                   {lang === "th" ? "ไม่พบรายการที่ค้นหา" : "No matching items"}
                 </td>
               </tr>
             ) : (
-              filtered.map((p) => {
+              groupByPayer(filtered).map((g, gi) => {
+                const subtotal = g.items.reduce((s, p) => s + p.amountToPay, 0);
+                return (
+                  <React.Fragment key={gi}>
+                    <tr className="border-t border-border bg-muted/20">
+                      <td colSpan={colCount} className="px-3 py-1.5 text-[11px] font-bold text-foreground">
+                        {g.name} · {g.items.length} {lang === "th" ? "รายการ" : "items"}
+                      </td>
+                    </tr>
+                    {g.items.map((p) => {
                 const isExpanded = expandedId === p.id;
                 const displayName = p.user?.name ?? p.guestName ?? (lang === "th" ? "ยังไม่ระบุคน" : "Unassigned");
                 const isGuest = !p.userId && p.guestName;
@@ -265,6 +308,26 @@ export default function ParticipantTable({
                       className={`hover:bg-muted/5 border-t border-border transition-colors select-none ${isOwner ? "cursor-pointer" : ""
                         } ${isExpanded ? "bg-muted/5" : ""}`}
                     >
+                      {claimCol && (
+                        <td className="p-3 align-top" onClick={(e) => e.stopPropagation()}>
+                          {(() => {
+                            const mine = p.userId === currentUserId;
+                            if (p.slipImagePath)
+                              return mine ? (
+                                <input type="checkbox" checked disabled className="w-4 h-4 accent-brand" />
+                              ) : null;
+                            if (!(mine || isUnassigned)) return null;
+                            return (
+                              <input
+                                type="checkbox"
+                                checked={selected.has(p.id)}
+                                onChange={() => toggleSel(p.id)}
+                                className="w-4 h-4 accent-brand cursor-pointer"
+                              />
+                            );
+                          })()}
+                        </td>
+                      )}
                       <td className="p-3 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <p className="font-semibold text-sm text-foreground truncate">
@@ -527,12 +590,26 @@ export default function ParticipantTable({
                     )}
                   </React.Fragment>
                 );
+                    })}
+                    <tr className="border-t border-border/60 bg-muted/5">
+                      {claimCol && <td />}
+                      <td className="px-3 py-1.5 text-[11px] font-semibold text-muted">
+                        {lang === "th" ? "รวม" : "Subtotal"} {g.name}
+                      </td>
+                      <td />
+                      <td className="px-3 py-1.5 text-right text-[11px] font-bold text-brand">
+                        {baht(subtotal)}
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
               })
             )}
           </tbody>
           {participants.length > 0 && (
             <tfoot>
               <tr className="bg-muted/10 font-bold border-t-2 border-border text-foreground">
+                {claimCol && <td className="p-3" />}
                 <td className="p-3 text-xs font-bold text-foreground">{t("bill.totalAmount")}</td>
                 <td className="p-3 text-right text-xs whitespace-nowrap">{baht(totalOriginalPrice)}</td>
                 <td className="p-3 text-right text-xs text-brand whitespace-nowrap">
@@ -541,7 +618,7 @@ export default function ParticipantTable({
               </tr>
               {deliveryFee > 0 && (
                 <tr className="border-t border-border/60 text-muted">
-                  <td colSpan={3} className="p-3 text-[10px] font-normal">
+                  <td colSpan={colCount} className="p-3 text-[10px] font-normal">
                     {lang === "th"
                       ? `* ยอดรวมค่าส่ง ${baht(deliveryFee)} (หาร ${deliveryPersonCount} คน) แล้ว`
                       : `* Totals already include ${baht(deliveryFee)} delivery (split ${deliveryPersonCount} ways)`}
@@ -553,12 +630,25 @@ export default function ParticipantTable({
         </table>
       </div>
 
+      {/* Non-owner self-claim: confirm the ticked items */}
+      {claimCol && participants.length > 0 && (
+        <div className="space-y-1.5">
+          <button
+            onClick={confirmClaims}
+            disabled={!claimDirty || claimPending}
+            className="w-full rounded-xl bg-brand py-2.5 text-sm font-bold text-white transition active:scale-[.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {t("bill.claim.confirm")}
+          </button>
+          <p className="text-center text-[10px] text-muted">{t("bill.claim.hint")}</p>
+        </div>
+      )}
+
       {/* Share Modal Dialog */}
       <ShareBillModal
         isOpen={isShareOpen}
         onClose={() => setIsShareOpen(false)}
         postId={postId}
-        isOwner={isOwner}
         postTitle={postTitle}
         postNote={postNote}
         ownerName={ownerName}

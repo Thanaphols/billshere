@@ -9,12 +9,14 @@ export default function PagedPostList({
   type,
   searchQuery = "",
   emptyText = "ยังไม่มีโพสในระบบ",
+  emptyContent,
   status = "all",
 }: {
   initialPosts: PostCardData[];
   type: "owned" | "tagged" | "search";
   searchQuery?: string;
   emptyText?: string;
+  emptyContent?: React.ReactNode;
   status?: string;
 }) {
   const [posts, setPosts] = useState<PostCardData[]>(initialPosts);
@@ -70,9 +72,11 @@ export default function PagedPostList({
 
   if (posts.length === 0) {
     return (
-      <p className="rounded-2xl border border-dashed border-border bg-surface/50 px-4 py-8 text-center text-sm text-muted">
-        {emptyText}
-      </p>
+      emptyContent ?? (
+        <p className="rounded-2xl border border-dashed border-border bg-surface/50 px-4 py-8 text-center text-sm text-muted">
+          {emptyText}
+        </p>
+      )
     );
   }
 

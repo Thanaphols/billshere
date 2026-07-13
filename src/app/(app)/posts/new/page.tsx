@@ -14,6 +14,9 @@ export default function NewPostPage() {
             placeholder="เช่น ชานมเย็นวันศุกร์"
             className="w-full rounded-xl border border-border bg-white px-3 py-3 outline-none focus:border-brand"
           />
+          <span className="mt-1 block text-xs text-muted">
+            ตั้งชื่อร้าน/มื้อ ให้เพื่อนรู้ว่าเป็นบิลอะไร
+          </span>
         </label>
 
         <label className="block">
