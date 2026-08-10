@@ -31,7 +31,7 @@ Postgres เปิดที่ **host `localhost` port `5433`** (เลี่ย
 ```bash
 docker compose up -d db           # Postgres อย่างเดียว (localhost:5433)
 npm install
-npx prisma migrate dev            # สร้าง/อัปเดตตาราง
+npx prisma migrate dev            # สร้าง/อัปเดตตาราง + seed บัญชีเดโมอัตโนมัติ
 npm run dev
 ```
 
