@@ -6,6 +6,7 @@ import { baht } from "@/lib/format";
 import { cookies } from "next/headers";
 import { t } from "@/lib/i18n-dict";
 import LiveRefresh from "@/components/LiveRefresh";
+import SummaryFilters from "@/components/SummaryFilters";
 
 function getRange(mode: string, dateParam?: string) {
   const now = new Date();
@@ -165,82 +166,17 @@ export default async function SummaryPage({
         </a>
       </div>
 
-      {/* Query Form */}
-      <form method="get" className="space-y-3 bg-surface p-4 rounded-2xl shadow-xs">
-        <input type="hidden" name="mode" value={mode} />
-        
-        {/* Toggle Pills Mode */}
-        <div className="flex rounded-xl border border-border p-0.5 bg-background text-[11px] font-bold w-full">
-          <Link
-            href={`/summary?mode=daily&date=${dailyDefault}&q=${q}`}
-            className={`flex-1 py-2 text-center rounded-lg transition-all ${
-              mode === "daily" ? "bg-white shadow-xs text-brand" : "text-muted font-semibold"
-            }`}
-          >
-            {lang === "th" ? "รายวัน" : "Daily"}
-          </Link>
-          <Link
-            href={`/summary?mode=monthly&date=${monthlyDefault}&q=${q}`}
-            className={`flex-1 py-2 text-center rounded-lg transition-all ${
-              mode === "monthly" ? "bg-white shadow-xs text-brand" : "text-muted font-semibold"
-            }`}
-          >
-            {lang === "th" ? "รายเดือน" : "Monthly"}
-          </Link>
-          <Link
-            href={`/summary?mode=yearly&date=${yearlyDefault}&q=${q}`}
-            className={`flex-1 py-2 text-center rounded-lg transition-all ${
-              mode === "yearly" ? "bg-white shadow-xs text-brand" : "text-muted font-semibold"
-            }`}
-          >
-            {lang === "th" ? "รายปี" : "Yearly"}
-          </Link>
-        </div>
-
-        {/* Inputs row */}
-        <div className="space-y-2.5">
-          <div className="flex gap-2">
-            {mode === "daily" && (
-              <input
-                type="date"
-                name="date"
-                defaultValue={dailyDefault}
-                className="rounded-xl border border-border bg-white px-2.5 py-2.5 text-xs outline-none focus:border-brand flex-1 min-w-0"
-              />
-            )}
-            {mode === "monthly" && (
-              <input
-                type="month"
-                name="date"
-                defaultValue={monthlyDefault}
-                className="rounded-xl border border-border bg-white px-2.5 py-2.5 text-xs outline-none focus:border-brand flex-1 min-w-0"
-              />
-            )}
-            {mode === "yearly" && (
-              <input
-                type="number"
-                name="date"
-                defaultValue={yearlyDefault}
-                min="2000"
-                max="2100"
-                placeholder="YYYY"
-                className="no-spinner rounded-xl border border-border bg-white px-2.5 py-2.5 text-xs outline-none focus:border-brand flex-1 font-bold text-center text-sm min-w-0"
-              />
-            )}
-
-            <input
-              name="q"
-              defaultValue={q}
-              placeholder={t("bill.search.placeholder", lang)}
-              className="flex-[1.8] rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand text-sm min-w-0"
-            />
-          </div>
-
-          <button className="w-full rounded-xl bg-brand py-2.5 font-bold text-white text-xs hover:bg-brand/90 transition active:scale-[.98]">
-            {lang === "th" ? "ค้นหา" : "Search"}
-          </button>
-        </div>
-      </form>
+      {/* Live query bar (mode + date + debounced search) */}
+      <SummaryFilters
+        mode={mode as "daily" | "monthly" | "yearly"}
+        initialDate={mode === "daily" ? dailyDefault : mode === "monthly" ? monthlyDefault : yearlyDefault}
+        initialQ={q}
+        dailyDefault={dailyDefault}
+        monthlyDefault={monthlyDefault}
+        yearlyDefault={yearlyDefault}
+        lang={lang}
+        placeholder={t("bill.search.placeholder", lang)}
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-3 gap-3">

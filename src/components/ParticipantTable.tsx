@@ -496,7 +496,7 @@ export default function ParticipantTable({
 
                                     <button
                                       type="submit"
-                                      className="w-full rounded-xl bg-brand text-white py-2 px-4 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]"
+                                      className="w-full rounded-xl bg-accent text-white py-2 px-4 text-xs font-bold hover:bg-accent/90 transition active:scale-[.98]"
                                     >
                                       {t("bill.save")}
                                     </button>

@@ -8,10 +8,13 @@
   --border: #e5e7eb;
   --brand: #16a34a;
   --brand-fg: #ffffff;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
 }
 
 [data-theme="blue"] {
   --brand: #2563eb;
+  --accent: #0d9488;
 }
 
 @theme inline {
@@ -21,6 +24,7 @@
   --color-muted: var(--muted);
   --color-border: var(--border);
   --color-brand: var(--brand);
+  --color-accent: var(--accent);
   --font-sans: var(--font-geist-sans);
 }
 

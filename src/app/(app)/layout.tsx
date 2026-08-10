@@ -4,7 +4,6 @@ import { getCurrentUser } from "@/lib/auth";
 import BottomNav from "@/components/BottomNav";
 import { I18nProvider } from "@/lib/i18n";
 import HeaderSettings from "@/components/HeaderSettings";
-import HelpButton from "@/components/HelpButton";
 
 export default async function AppLayout({
   children,
@@ -30,14 +29,11 @@ export default async function AppLayout({
               className="h-10 w-auto"
             />
           </div>
-          <div className="flex items-center gap-2.5">
-            <HelpButton lang={lang as any} />
-            <HeaderSettings
-              initialLang={lang as any}
-              initialTheme={theme as any}
-              userName={user.name}
-            />
-          </div>
+          <HeaderSettings
+            initialLang={lang as any}
+            initialTheme={theme as any}
+            userName={user.name}
+          />
         </header>
 
         <main className="flex-1 px-4 py-4 pb-24">{children}</main>

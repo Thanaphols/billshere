@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect, useTransition } from "react";
 import { updateAppSettings } from "@/actions/profile";
 import { t, type Lang } from "@/lib/i18n-dict";
+import HelpButton from "@/components/HelpButton";
 
 export default function HeaderSettings({
   initialLang,
@@ -87,6 +88,9 @@ export default function HeaderSettings({
               <span className="absolute inset-0 rounded-full border-2 border-t-brand border-transparent animate-spin" />
             )}
           </button>
+
+          {/* Help / how-to */}
+          <HelpButton lang={initialLang} />
         </div>
       )}
     </div>
