@@ -16,45 +16,48 @@ const fmtDateTime = (d: Date) =>
     minute: "2-digit",
   }).format(d);
 
-function getRange(mode: string, dateParam?: string) {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Range for the selected view. `toParam` (optional) extends the window to a
+ * span; absent or equal = a single day/month/year. Mirrors the summary page. */
+function getRange(mode: string, dateParam?: string, toParam?: string) {
   const now = new Date();
-  let start: Date;
-  let end: Date;
-  let key: string;
 
   if (mode === "yearly") {
-    let y = now.getFullYear();
-    if (dateParam && /^\d{4}$/.test(dateParam)) y = Number(dateParam);
-    start = new Date(y, 0, 1);
-    end = new Date(y + 1, 0, 1);
-    key = String(y);
-  } else if (mode === "monthly") {
-    let y = now.getFullYear();
-    let m = now.getMonth();
-    if (dateParam && /^\d{4}-\d{2}$/.test(dateParam)) {
-      const [yy, mm] = dateParam.split("-").map(Number);
-      y = yy;
-      m = mm - 1;
-    }
-    start = new Date(y, m, 1);
-    end = new Date(y, m + 1, 1);
-    key = `${y}-${String(m + 1).padStart(2, "0")}`;
-  } else {
-    let y = now.getFullYear();
-    let m = now.getMonth();
-    let d = now.getDate();
-    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-      const [yy, mm, dd] = dateParam.split("-").map(Number);
-      y = yy;
-      m = mm - 1;
-      d = dd;
-    }
-    start = new Date(y, m, d);
-    end = new Date(y, m, d + 1);
-    key = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const py = (s?: string) => (s && /^\d{4}$/.test(s) ? Number(s) : null);
+    let y0 = py(dateParam) ?? now.getFullYear();
+    let y1 = py(toParam) ?? y0;
+    if (y1 < y0) [y0, y1] = [y1, y0];
+    return {
+      start: new Date(y0, 0, 1),
+      end: new Date(y1 + 1, 0, 1),
+      key: y0 === y1 ? `${y0}` : `${y0}–${y1}`,
+    };
   }
-
-  return { start, end, key };
+  if (mode === "monthly") {
+    const pm = (s?: string) => (s && /^\d{4}-\d{2}$/.test(s) ? (s.split("-").map(Number) as [number, number]) : null);
+    let a = pm(dateParam) ?? [now.getFullYear(), now.getMonth() + 1];
+    let b = pm(toParam) ?? a;
+    if (b[0] * 12 + b[1] < a[0] * 12 + a[1]) [a, b] = [b, a];
+    return {
+      start: new Date(a[0], a[1] - 1, 1),
+      end: new Date(b[0], b[1], 1),
+      key: a[0] === b[0] && a[1] === b[1]
+        ? `${a[0]}-${pad2(a[1])}`
+        : `${a[0]}-${pad2(a[1])}–${b[0]}-${pad2(b[1])}`,
+    };
+  }
+  const pd = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? (s.split("-").map(Number) as [number, number, number]) : null);
+  let a = pd(dateParam) ?? [now.getFullYear(), now.getMonth() + 1, now.getDate()];
+  let b = pd(toParam) ?? a;
+  if (new Date(b[0], b[1] - 1, b[2]) < new Date(a[0], a[1] - 1, a[2])) [a, b] = [b, a];
+  return {
+    start: new Date(a[0], a[1] - 1, a[2]),
+    end: new Date(b[0], b[1] - 1, b[2] + 1),
+    key: a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+      ? `${a[0]}-${pad2(a[1])}-${pad2(a[2])}`
+      : `${a[0]}-${pad2(a[1])}-${pad2(a[2])}–${b[0]}-${pad2(b[1])}-${pad2(b[2])}`,
+  };
 }
 
 const BRAND = "FF16A34A";
@@ -67,7 +70,8 @@ export async function GET(req: NextRequest) {
 
   const mode = req.nextUrl.searchParams.get("mode") ?? "daily";
   const dateParam = req.nextUrl.searchParams.get("date") ?? undefined;
-  const { start, end, key } = getRange(mode, dateParam);
+  const toParam = req.nextUrl.searchParams.get("to") ?? undefined;
+  const { start, end, key } = getRange(mode, dateParam, toParam);
 
   const posts = await prisma.post.findMany({
     where: { createdAt: { gte: start, lt: end }, deletedAt: null },
@@ -291,7 +295,7 @@ export async function GET(req: NextRequest) {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="billshere-${key}.xlsx"`,
+      "Content-Disposition": `attachment; filename="billshere-${key.replace(/–/g, "_")}.xlsx"`,
     },
   });
 }

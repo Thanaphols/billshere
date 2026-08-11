@@ -8,66 +8,69 @@ import { t } from "@/lib/i18n-dict";
 import LiveRefresh from "@/components/LiveRefresh";
 import SummaryFilters from "@/components/SummaryFilters";
 
-function getRange(mode: string, dateParam?: string) {
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Range for the selected view. `toParam` (optional) extends the window to a
+ * span: start of the first unit → start of the unit after the last. Absent or
+ * equal `toParam` = a single day/month/year. */
+function getRange(mode: string, dateParam?: string, toParam?: string) {
   const now = new Date();
-  let start: Date;
-  let end: Date;
-  let key: string;
 
   if (mode === "yearly") {
-    let y = now.getFullYear();
-    if (dateParam && /^\d{4}$/.test(dateParam)) {
-      y = Number(dateParam);
-    }
-    start = new Date(y, 0, 1);
-    end = new Date(y + 1, 0, 1);
-    key = String(y);
-  } else if (mode === "monthly") {
-    let y = now.getFullYear();
-    let m = now.getMonth();
-    if (dateParam && /^\d{4}-\d{2}$/.test(dateParam)) {
-      const parts = dateParam.split("-").map(Number);
-      y = parts[0];
-      m = parts[1] - 1;
-    }
-    start = new Date(y, m, 1);
-    end = new Date(y, m + 1, 1);
-    key = `${y}-${String(m + 1).padStart(2, "0")}`;
-  } else {
-    let y = now.getFullYear();
-    let m = now.getMonth();
-    let d = now.getDate();
-    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
-      const parts = dateParam.split("-").map(Number);
-      y = parts[0];
-      m = parts[1] - 1;
-      d = parts[2];
-    }
-    start = new Date(y, m, d);
-    end = new Date(y, m, d + 1);
-    key = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const py = (s?: string) => (s && /^\d{4}$/.test(s) ? Number(s) : null);
+    let y0 = py(dateParam) ?? now.getFullYear();
+    let y1 = py(toParam) ?? y0;
+    if (y1 < y0) [y0, y1] = [y1, y0];
+    return {
+      start: new Date(y0, 0, 1),
+      end: new Date(y1 + 1, 0, 1),
+      key: y0 === y1 ? `${y0}` : `${y0}–${y1}`,
+    };
   }
-
-  return { start, end, key };
+  if (mode === "monthly") {
+    const pm = (s?: string) => (s && /^\d{4}-\d{2}$/.test(s) ? (s.split("-").map(Number) as [number, number]) : null);
+    let a = pm(dateParam) ?? [now.getFullYear(), now.getMonth() + 1];
+    let b = pm(toParam) ?? a;
+    if (b[0] * 12 + b[1] < a[0] * 12 + a[1]) [a, b] = [b, a];
+    return {
+      start: new Date(a[0], a[1] - 1, 1),
+      end: new Date(b[0], b[1], 1),
+      key: a[0] === b[0] && a[1] === b[1]
+        ? `${a[0]}-${pad2(a[1])}`
+        : `${a[0]}-${pad2(a[1])}–${b[0]}-${pad2(b[1])}`,
+    };
+  }
+  const pd = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? (s.split("-").map(Number) as [number, number, number]) : null);
+  let a = pd(dateParam) ?? [now.getFullYear(), now.getMonth() + 1, now.getDate()];
+  let b = pd(toParam) ?? a;
+  if (new Date(b[0], b[1] - 1, b[2]) < new Date(a[0], a[1] - 1, a[2])) [a, b] = [b, a];
+  return {
+    start: new Date(a[0], a[1] - 1, a[2]),
+    end: new Date(b[0], b[1] - 1, b[2] + 1),
+    key: a[0] === b[0] && a[1] === b[1] && a[2] === b[2]
+      ? `${a[0]}-${pad2(a[1])}-${pad2(a[2])}`
+      : `${a[0]}-${pad2(a[1])}-${pad2(a[2])}–${b[0]}-${pad2(b[1])}-${pad2(b[2])}`,
+  };
 }
 
 export default async function SummaryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mode?: string; date?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ mode?: string; date?: string; to?: string; q?: string; page?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const params = await searchParams;
   const mode = params.mode ?? "daily";
   const date = params.date ?? undefined;
+  const to = params.to ?? undefined;
   const q = params.q ?? "";
   const page = params.page ?? "1";
 
   const cookieStore = await cookies();
   const lang = (cookieStore.get("billshere_lang")?.value || "th") as any;
 
-  const { start, end, key } = getRange(mode, date);
+  const { start, end, key } = getRange(mode, date, to);
 
   // Filter posts
   const where: any = {
@@ -156,7 +159,7 @@ export default async function SummaryPage({
           {lang === "th" ? "สรุปรายงาน" : "Summary Report"}
         </h2>
         <a
-          href={`/api/summary/export?mode=${mode}&date=${date || key}`}
+          href={`/api/summary/export?mode=${mode}&date=${date || key}${to ? `&to=${to}` : ""}`}
           className="rounded-xl border border-brand bg-brand/5 px-3 py-1.5 text-xs font-bold text-brand hover:bg-brand/10 transition active:scale-[.97] flex items-center gap-1"
         >
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3.5 h-3.5">
@@ -170,6 +173,7 @@ export default async function SummaryPage({
       <SummaryFilters
         mode={mode as "daily" | "monthly" | "yearly"}
         initialDate={mode === "daily" ? dailyDefault : mode === "monthly" ? monthlyDefault : yearlyDefault}
+        initialTo={to ?? ""}
         initialQ={q}
         dailyDefault={dailyDefault}
         monthlyDefault={monthlyDefault}
@@ -227,7 +231,7 @@ export default async function SummaryPage({
           <Link
             href={
               pageNum > 1
-                ? `/summary?mode=${mode}&date=${date || ""}&q=${q}&page=${pageNum - 1}`
+                ? `/summary?mode=${mode}&date=${date || ""}${to ? `&to=${to}` : ""}&q=${q}&page=${pageNum - 1}`
                 : "#"
             }
             className={`rounded-xl border border-border bg-white px-4 py-2.5 text-xs font-bold transition select-none ${
@@ -244,7 +248,7 @@ export default async function SummaryPage({
           <Link
             href={
               pageNum < totalPages
-                ? `/summary?mode=${mode}&date=${date || ""}&q=${q}&page=${pageNum + 1}`
+                ? `/summary?mode=${mode}&date=${date || ""}${to ? `&to=${to}` : ""}&q=${q}&page=${pageNum + 1}`
                 : "#"
             }
             className={`rounded-xl border border-border bg-white px-4 py-2.5 text-xs font-bold transition select-none ${
