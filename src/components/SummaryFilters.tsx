@@ -87,10 +87,10 @@ export default function SummaryFilters({
       {/* Date + live search */}
       <div className="flex gap-2">
         {mode === "daily" && (
-          <input type="date" value={date} onChange={(e) => onDate(e.target.value)} className={dateCls} />
+          <input lang={lang === "en" ? "en" : "th"} type="date" value={date} onChange={(e) => onDate(e.target.value)} className={dateCls} />
         )}
         {mode === "monthly" && (
-          <input type="month" value={date} onChange={(e) => onDate(e.target.value)} className={dateCls} />
+          <input lang={lang === "en" ? "en" : "th"} type="month" value={date} onChange={(e) => onDate(e.target.value)} className={dateCls} />
         )}
         {mode === "yearly" && (
           <input
