@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import type { DiscountType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { computeBill, ownerKeyOf } from "@/lib/discount";
+import { computeBill, ownerKeyOf, round2 } from "@/lib/discount";
 import { notifyPostUpdate, notifyFeed } from "@/lib/events";
 import { deleteSlipFile } from "@/lib/uploads";
 
@@ -131,6 +131,11 @@ export type NewMenuItem = {
   quantity: number;
   userId?: string | null;
   guestName?: string | null;
+  // Promo-pack: sub-items sharing a packId are billed individually but grouped
+  // under a label (packName) capped at packPrice. Absent for plain items.
+  packId?: string | null;
+  packName?: string | null;
+  packPrice?: number | null;
 };
 
 /** Add several menu items at once (name + price + qty + optional owner). */
@@ -140,19 +145,45 @@ export async function addMenuItems(
 ): Promise<void> {
   await assertOwner(postId);
 
+  // Promo-pack caps: within each packId, Σ(sub-item price) must not exceed packPrice.
+  const packSums = new Map<string, { sum: number; cap: number }>();
+  for (const it of items) {
+    if (!it.packId) continue;
+    const price = Number(it.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const cap = Number(it.packPrice);
+    if (!Number.isFinite(cap) || cap <= 0) throw new Error("PACK_CAP_INVALID");
+    const cur = packSums.get(it.packId) ?? { sum: 0, cap };
+    cur.sum += price;
+    packSums.set(it.packId, cur);
+  }
+  for (const { sum, cap } of packSums.values()) {
+    if (round2(sum) > round2(cap)) throw new Error("PACK_CAP_EXCEEDED");
+  }
+
   const rows = items.flatMap((it) => {
     const price = Number(it.price);
     if (!Number.isFinite(price) || price <= 0) return [];
     const itemName = (it.itemName || "").trim() || "-";
-    const qty = Math.max(1, Math.floor(Number(it.quantity)) || 1);
+    const isPack = !!it.packId;
+    // Pack sub-items never expand by quantity — that would multiply price into the cap.
+    const qty = isPack ? 1 : Math.max(1, Math.floor(Number(it.quantity)) || 1);
     const userId = it.userId || null;
     const guestName = userId ? null : (it.guestName || "").trim() || null;
+    const packFields = isPack
+      ? {
+          packId: it.packId,
+          packName: (it.packName || "").trim() || null,
+          packPrice: Number(it.packPrice),
+        }
+      : {};
     return Array.from({ length: qty }, (_, i) => ({
       postId,
       itemName: qty === 1 ? itemName : `${itemName} (${i + 1}/${qty})`,
       price,
       userId,
       guestName,
+      ...packFields,
     }));
   });
 
@@ -176,6 +207,16 @@ export async function editMenuItem(
   const itemName = str(formData, "itemName") || p.itemName;
   const price = num(formData, "price");
   if (price <= 0) return;
+
+  // Keep the promo-pack cap intact when editing a sub-item's price.
+  if (p.packId && p.packPrice != null) {
+    const siblings = await prisma.participant.findMany({
+      where: { postId: p.postId, packId: p.packId },
+      select: { id: true, price: true },
+    });
+    const sum = siblings.reduce((a, s) => a + (s.id === participantId ? price : s.price), 0);
+    if (round2(sum) > round2(p.packPrice)) throw new Error("PACK_CAP_EXCEEDED");
+  }
 
   await prisma.participant.update({
     where: { id: participantId },

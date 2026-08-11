@@ -82,6 +82,12 @@ model Participant {
   guestClaimToken String?
   itemName      String
   price         Float
+  // Promo-pack grouping: a "pack" (e.g. "น้ำ 1 แถม 1", 30฿) is a label, never billed.
+  // Its sub-items are ordinary billable rows sharing packId; Σ(sub price) ≤ packPrice
+  // is enforced at write time (addMenuItems/editMenuItem). Null = plain item.
+  packId        String?
+  packName      String?
+  packPrice     Float?
   discountShare Float         @default(0)
   amountToPay   Float         @default(0)
   paymentStatus PaymentStatus @default(UNPAID)
@@ -91,4 +97,5 @@ model Participant {
   @@index([postId])
   @@index([userId])
   @@index([guestClaimToken])
+  @@index([packId])
 }

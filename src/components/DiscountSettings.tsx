@@ -67,6 +67,7 @@ export default function DiscountSettings({
               value={discount}
               onChange={(e) => setDiscount(e.target.value === "" ? "" : parseFloat(e.target.value))}
               onBlur={() => setDiscount((v) => (v === "" || Number.isNaN(v) ? 0 : v))}
+              onWheel={(e) => e.currentTarget.blur()}
               className={inputCls}
             />
           </label>
@@ -84,6 +85,7 @@ export default function DiscountSettings({
               value={fee}
               onChange={(e) => setFee(e.target.value === "" ? "" : parseFloat(e.target.value))}
               onBlur={() => setFee((v) => (v === "" || Number.isNaN(v) ? 0 : v))}
+              onWheel={(e) => e.currentTarget.blur()}
               className={inputCls}
             />
           </label>
@@ -105,6 +107,7 @@ export default function DiscountSettings({
               value={personCount}
               onChange={(e) => setPersonCount(e.target.value === "" ? "" : parseInt(e.target.value, 10))}
               onBlur={() => setPersonCount((v) => (v === "" || Number.isNaN(v) || v < 1 ? 1 : v))}
+              onWheel={(e) => e.currentTarget.blur()}
               className={inputCls}
             />
           </label>

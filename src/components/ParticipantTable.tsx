@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useState, useEffect, useTransition } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { baht } from "@/lib/format";
-import { groupByPayer } from "@/lib/discount";
+import { groupByPayer, ownerKeyOf } from "@/lib/discount";
+import type { DiscountType } from "@prisma/client";
 import AddMenuItemForm from "@/components/AddMenuItemForm";
 import ShareBillModal from "@/components/ShareBillModal";
 import ConfirmModal from "@/components/ConfirmModal";
+import DiscountSettings from "@/components/DiscountSettings";
 import Dropdown from "@/components/Dropdown";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -18,6 +21,7 @@ import {
   markPaid,
   markUnpaid,
   syncMyClaims,
+  updatePostSettings,
 } from "@/actions/posts";
 import { deleteSlip } from "@/actions/slips";
 
@@ -38,6 +42,8 @@ type ParticipantData = {
   paidAt: Date | null;
   userId: string | null;
   guestName: string | null;
+  packId: string | null;
+  packName: string | null;
   user?: UserOption | null;
 };
 
@@ -50,6 +56,8 @@ export default function ParticipantTable({
   postStatus,
   deliveryFee,
   deliveryPersonCount,
+  discountType,
+  discountValue,
   ownerQr,
   ownerName,
   postTitle,
@@ -63,19 +71,45 @@ export default function ParticipantTable({
   postStatus: "OPEN" | "CLOSED";
   deliveryFee: number;
   deliveryPersonCount: number;
+  discountType: DiscountType;
+  discountValue: number;
   ownerQr: string | null;
   ownerName: string;
   postTitle: string;
   postNote: string | null;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [openPacks, setOpenPacks] = useState<Set<string>>(new Set());
+  const togglePack = (id: string) =>
+    setOpenPacks((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const [editError, setEditError] = useState("");
   const [assignModes, setAssignModes] = useState<Record<string, "user" | "guest">>({});
   const [showAddForm, setShowAddForm] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: string; name: string } | null>(null);
   const [slipToDelete, setSlipToDelete] = useState<{ id: string; name: string } | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "UNPAID" | "SLIP_UPLOADED" | "PAID">("all");
+  // Multi-select filters — empty set means "no filter" (show all).
+  const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set());
+  const [claimFilters, setClaimFilters] = useState<Set<string>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
+  const toggleFilter = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    val: string
+  ) =>
+    setter((s) => {
+      const n = new Set(s);
+      if (n.has(val)) n.delete(val);
+      else n.add(val);
+      return n;
+    });
+  const activeFilterCount = statusFilters.size + claimFilters.size;
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const { t, lang } = useI18n();
@@ -126,6 +160,7 @@ export default function ParticipantTable({
   }, [postId, router]);
 
   const toggleExpand = (id: string) => {
+    setEditError("");
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
@@ -148,8 +183,11 @@ export default function ParticipantTable({
   const filtered = participants.filter((p) => {
     const name = (p.user?.name ?? p.guestName ?? "").toLowerCase();
     const matchText = !q || p.itemName.toLowerCase().includes(q) || name.includes(q);
-    const matchStatus = statusFilter === "all" || p.paymentStatus === statusFilter;
-    return matchText && matchStatus;
+    const matchStatus = statusFilters.size === 0 || statusFilters.has(p.paymentStatus);
+    const claimed = !!(p.userId || p.guestName);
+    const matchAssign =
+      claimFilters.size === 0 || claimFilters.has(claimed ? "claimed" : "unclaimed");
+    return matchText && matchStatus && matchAssign;
   });
 
   return (
@@ -195,6 +233,20 @@ export default function ParticipantTable({
             </svg>
           </button>
 
+          {/* Settings (discount/delivery) modal trigger */}
+          {isOwner && (
+            <button
+              onClick={() => setShowSettings(true)}
+              className="rounded-full w-7 h-7 flex items-center justify-center border bg-white text-muted border-border hover:bg-muted/10 hover:text-brand hover:border-brand/40 active:scale-[.95] transition"
+              title={lang === "th" ? "ตั้งค่าการหารและค่าส่ง" : "Split & delivery settings"}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-.255c.007-.378-.138-.75-.43-.991l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              </svg>
+            </button>
+          )}
+
           {isOwner && (
             <button
               onClick={() => setShowAddForm((prev) => !prev)}
@@ -209,6 +261,36 @@ export default function ParticipantTable({
           )}
         </div>
       </div>
+
+      {/* Settings modal — portaled to body so it escapes nested stacking contexts and covers the bottom nav */}
+      {isOwner && showSettings && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 backdrop-blur-xs p-4"
+          onClick={() => setShowSettings(false)}
+        >
+          <div className="relative w-full max-w-sm my-auto" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowSettings(false)}
+              aria-label="close"
+              className="absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-muted/20 text-muted hover:bg-muted/30 hover:text-foreground transition"
+            >
+              ✕
+            </button>
+            <DiscountSettings
+              action={async (fd) => {
+                await updatePostSettings(postId, fd);
+                setShowSettings(false);
+              }}
+              rows={participants.map((p) => ({ id: p.id, price: p.price, ownerKey: ownerKeyOf(p) }))}
+              defaultType={discountType}
+              defaultValue={discountValue}
+              defaultDeliveryFee={deliveryFee}
+              defaultDeliveryPersonCount={deliveryPersonCount}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Toggleable Add Menu Item Form */}
       {isOwner && showAddForm && (
@@ -242,19 +324,85 @@ export default function ParticipantTable({
             placeholder={lang === "th" ? "ค้นหาเมนู หรือชื่อผู้จ่าย" : "Search item or payer"}
             className="min-w-0 flex-1 rounded-xl border border-border bg-white px-3 py-2 text-xs outline-none focus:border-brand"
           />
-          <div className="w-32 shrink-0">
-            <Dropdown
-              name="statusFilter"
-              value={statusFilter}
-              onChange={(v) => setStatusFilter(v as typeof statusFilter)}
-              placeholder={lang === "th" ? "ทุกสถานะ" : "All status"}
-              options={[
-                { value: "all", label: lang === "th" ? "ทุกสถานะ" : "All status" },
-                { value: "UNPAID", label: t("bill.status.unpaid") },
-                { value: "SLIP_UPLOADED", label: t("bill.status.uploaded") },
-                { value: "PAID", label: t("bill.status.paid") },
-              ]}
-            />
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setFilterOpen((v) => !v)}
+              aria-label={lang === "th" ? "ตัวกรอง" : "Filter"}
+              className={`relative flex h-9 w-9 items-center justify-center rounded-xl border transition ${
+                activeFilterCount > 0
+                  ? "border-brand bg-brand/5 text-brand"
+                  : "border-border bg-white text-muted hover:bg-muted/10"
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z" />
+              </svg>
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand px-1 text-[9px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            {filterOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setFilterOpen(false)} />
+                <div className="absolute right-0 top-11 z-50 w-52 rounded-xl border border-border bg-white p-3 shadow-lg space-y-3">
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                      {lang === "th" ? "สถานะจ่าย" : "Payment"}
+                    </p>
+                    {[
+                      { value: "UNPAID", label: t("bill.status.unpaid") },
+                      { value: "SLIP_UPLOADED", label: t("bill.status.uploaded") },
+                      { value: "PAID", label: t("bill.status.paid") },
+                    ].map((o) => (
+                      <label key={o.value} className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={statusFilters.has(o.value)}
+                          onChange={() => toggleFilter(setStatusFilters, o.value)}
+                          className="w-3.5 h-3.5 accent-brand"
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="space-y-1.5 border-t border-border pt-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                      {lang === "th" ? "การเคลม" : "Claim"}
+                    </p>
+                    {[
+                      { value: "claimed", label: lang === "th" ? "มีคนเคลมแล้ว" : "Claimed" },
+                      { value: "unclaimed", label: lang === "th" ? "ยังไม่มีคนเคลม" : "Unclaimed" },
+                    ].map((o) => (
+                      <label key={o.value} className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={claimFilters.has(o.value)}
+                          onChange={() => toggleFilter(setClaimFilters, o.value)}
+                          className="w-3.5 h-3.5 accent-brand"
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilters(new Set());
+                        setClaimFilters(new Set());
+                      }}
+                      className="w-full rounded-lg border border-border py-1.5 text-[11px] font-bold text-muted hover:bg-muted/10"
+                    >
+                      {lang === "th" ? "ล้างตัวกรอง" : "Clear filters"}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -284,16 +432,8 @@ export default function ParticipantTable({
                 </td>
               </tr>
             ) : (
-              groupByPayer(filtered).map((g, gi) => {
-                const subtotal = g.items.reduce((s, p) => s + p.amountToPay, 0);
-                return (
-                  <React.Fragment key={gi}>
-                    <tr className="border-t border-border bg-muted/20">
-                      <td colSpan={colCount} className="px-3 py-1.5 text-[11px] font-bold text-foreground">
-                        {g.name} · {g.items.length} {lang === "th" ? "รายการ" : "items"}
-                      </td>
-                    </tr>
-                    {g.items.map((p) => {
+              (() => {
+                const renderItemRow = (p: ParticipantData, inPack = false, isLast = false) => {
                 const isExpanded = expandedId === p.id;
                 const displayName = p.user?.name ?? p.guestName ?? (lang === "th" ? "ยังไม่ระบุคน" : "Unassigned");
                 const isGuest = !p.userId && p.guestName;
@@ -305,7 +445,7 @@ export default function ParticipantTable({
                     {/* Main row, clicking anywhere on it toggles expanded view for owner */}
                     <tr
                       onClick={() => isOwner && toggleExpand(p.id)}
-                      className={`hover:bg-muted/5 border-t border-border transition-colors select-none ${isOwner ? "cursor-pointer" : ""
+                      className={`hover:bg-muted/5 transition-colors select-none ${inPack ? "" : "border-t border-border"} ${isOwner ? "cursor-pointer" : ""
                         } ${isExpanded ? "bg-muted/5" : ""}`}
                     >
                       {claimCol && (
@@ -328,9 +468,22 @@ export default function ParticipantTable({
                           })()}
                         </td>
                       )}
-                      <td className="p-3 min-w-0">
+                      <td className={`p-3 min-w-0 ${inPack ? "relative pl-8" : ""}`}>
+                        {inPack && (
+                          <>
+                            {/* vertical trunk — full height links to next row, half on the last */}
+                            <span
+                              aria-hidden
+                              className={`absolute left-3 top-0 border-l border-border/70 ${isLast ? "h-1/2" : "bottom-0"}`}
+                            />
+                            {/* horizontal branch into the row */}
+                            <span aria-hidden className="absolute left-3 top-1/2 w-3 border-t border-border/70" />
+                          </>
+                        )}
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <p className="font-semibold text-sm text-foreground truncate">
+                          <p
+                            className={`truncate text-foreground ${inPack ? "text-xs font-medium" : "font-semibold text-sm"}`}
+                          >
                             {p.itemName}
                           </p>
                           {isOwner && (
@@ -386,8 +539,8 @@ export default function ParticipantTable({
 
                     {/* Single-column, stacked actions panel for mobile view */}
                     {isOwner && isExpanded && (
-                      <tr className="bg-muted/10">
-                        <td colSpan={3} className="p-3 bg-muted/20 border-t border-border">
+                      <tr className="bg-white">
+                        <td colSpan={3} className="p-3 bg-white border-t border-border">
                           <div className="space-y-3.5">
                             {/* Edit item name / price */}
                             {postStatus === "OPEN" && (
@@ -400,7 +553,20 @@ export default function ParticipantTable({
                                 </p>
                                 <form
                                   action={async (fd) => {
-                                    await editMenuItem(p.id, fd);
+                                    try {
+                                      await editMenuItem(p.id, fd);
+                                      setEditError("");
+                                    } catch {
+                                      setEditError(
+                                        p.packName
+                                          ? lang === "th"
+                                            ? "ราคารวมของแพ็คเกินราคาที่กำหนด"
+                                            : "Sub-items exceed the pack price"
+                                          : lang === "th"
+                                            ? "บันทึกไม่สำเร็จ"
+                                            : "Save failed"
+                                      );
+                                    }
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   className="space-y-2"
@@ -418,9 +584,15 @@ export default function ParticipantTable({
                                       step="0.01"
                                       min="0"
                                       defaultValue={p.price}
+                                      onWheel={(e) => e.currentTarget.blur()}
                                       className="no-spinner w-24 rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand"
                                     />
                                   </div>
+                                  {editError && (
+                                    <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-600">
+                                      {editError}
+                                    </p>
+                                  )}
                                   <button
                                     type="submit"
                                     className="w-full rounded-xl bg-brand text-white py-2 px-4 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]"
@@ -590,20 +762,87 @@ export default function ParticipantTable({
                     )}
                   </React.Fragment>
                 );
+                };
+                const packMap = new Map<string, ParticipantData[]>();
+                const singles: ParticipantData[] = [];
+                for (const p of filtered) {
+                  if (p.packId) {
+                    const arr = packMap.get(p.packId) ?? [];
+                    arr.push(p);
+                    packMap.set(p.packId, arr);
+                  } else singles.push(p);
+                }
+                return (
+                  <>
+                    {[...packMap.entries()].map(([packId, rows]) => {
+                      const open = openPacks.has(packId);
+                      const pName = rows[0].packName ?? (lang === "th" ? "แพ็ค" : "Pack");
+                      const pPrice = rows.reduce((s, x) => s + x.price, 0);
+                      const pAmount = rows.reduce((s, x) => s + x.amountToPay, 0);
+                      return (
+                        <React.Fragment key={"pack:" + packId}>
+                          <tr
+                            onClick={() => togglePack(packId)}
+                            className="cursor-pointer border-t border-border hover:bg-muted/5 transition-colors select-none"
+                          >
+                            {claimCol && <td className="p-3" />}
+                            <td className="p-3 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="shrink-0 rounded-md bg-brand/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand">
+                                  {lang === "th" ? "แพ็ค" : "Pack"}
+                                </span>
+                                <span className="min-w-0 truncate text-base font-extrabold text-foreground">
+                                  {pName}
+                                </span>
+                                <span className="text-[10px] text-muted shrink-0">{open ? "▲" : "▼"}</span>
+                              </div>
+                              <div className="text-[10px] text-muted mt-0.5">
+                                {rows.length} {lang === "th" ? "รายการย่อย" : "sub-items"}
+                              </div>
+                            </td>
+                            <td className="p-3 text-right whitespace-nowrap align-middle">
+                              <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted/70">
+                                {lang === "th" ? "รวม" : "Total"}
+                              </span>
+                              <span className="font-semibold text-muted">{baht(pPrice)}</span>
+                            </td>
+                            <td className="p-3 text-right whitespace-nowrap align-middle">
+                              <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted/70">
+                                {lang === "th" ? "รวม" : "Total"}
+                              </span>
+                              <span className="text-sm font-extrabold text-brand">{baht(pAmount)}</span>
+                            </td>
+                          </tr>
+                          {open && rows.map((r, i) => renderItemRow(r, true, i === rows.length - 1))}
+                        </React.Fragment>
+                      );
                     })}
-                    <tr className="border-t border-border/60 bg-muted/5">
-                      {claimCol && <td />}
-                      <td className="px-3 py-1.5 text-[11px] font-semibold text-muted">
-                        {lang === "th" ? "รวม" : "Subtotal"} {g.name}
-                      </td>
-                      <td />
-                      <td className="px-3 py-1.5 text-right text-[11px] font-bold text-brand">
-                        {baht(subtotal)}
-                      </td>
-                    </tr>
-                  </React.Fragment>
+                    {groupByPayer(singles).map((g, gi) => {
+                      const subtotal = g.items.reduce((s, p) => s + p.amountToPay, 0);
+                      return (
+                        <React.Fragment key={"payer:" + gi}>
+                          <tr className="border-t border-border bg-muted/20">
+                            <td colSpan={colCount} className="px-3 py-1.5 text-[11px] font-bold text-foreground">
+                              {g.name} · {g.items.length} {lang === "th" ? "รายการ" : "items"}
+                            </td>
+                          </tr>
+                          {g.items.map((p) => renderItemRow(p))}
+                          <tr className="border-t border-border/60 bg-muted/5">
+                            {claimCol && <td />}
+                            <td className="px-3 py-1.5 text-[11px] font-semibold text-muted">
+                              {lang === "th" ? "รวม" : "Subtotal"} {g.name}
+                            </td>
+                            <td />
+                            <td className="px-3 py-1.5 text-right text-[11px] font-bold text-brand">
+                              {baht(subtotal)}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      );
+                    })}
+                  </>
                 );
-              })
+              })()
             )}
           </tbody>
           {participants.length > 0 && (

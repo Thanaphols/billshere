@@ -2,13 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { promptpayQrDataUrl } from "@/lib/promptpay";
-import { ownerKeyOf } from "@/lib/discount";
-import {
-  updatePostSettings,
-  togglePostStatus,
-} from "@/actions/posts";
+import { togglePostStatus } from "@/actions/posts";
 import PaySlipPanel from "@/components/PaySlipPanel";
-import DiscountSettings from "@/components/DiscountSettings";
 import ParticipantTable from "@/components/ParticipantTable";
 import EditPostModal from "@/components/EditPostModal";
 import DeletePostButton from "@/components/DeletePostButton";
@@ -116,6 +111,8 @@ export default async function PostDetailPage({
         postStatus={post.status}
         deliveryFee={post.deliveryFee}
         deliveryPersonCount={post.deliveryPersonCount}
+        discountType={post.discountType}
+        discountValue={post.discountValue}
         ownerQr={ownerQr}
         ownerName={post.owner.name}
         postTitle={post.title}
@@ -125,19 +122,6 @@ export default async function PostDetailPage({
       {/* Owner controls */}
       {isOwner && (
         <>
-          <DiscountSettings
-            action={updatePostSettings.bind(null, post.id)}
-            rows={post.participants.map((p) => ({
-              id: p.id,
-              price: p.price,
-              ownerKey: ownerKeyOf(p),
-            }))}
-            defaultType={post.discountType}
-            defaultValue={post.discountValue}
-            defaultDeliveryFee={post.deliveryFee}
-            defaultDeliveryPersonCount={post.deliveryPersonCount}
-          />
-
           <div className="space-y-2">
             <form action={togglePostStatus.bind(null, post.id)}>
               <button className="w-full rounded-xl border border-border bg-surface py-2.5 text-sm font-semibold text-foreground hover:bg-muted/10 transition active:scale-[.98]">

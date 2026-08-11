@@ -97,6 +97,7 @@ export default function SummaryFilters({
             type="number"
             value={date}
             onChange={(e) => onDate(e.target.value)}
+            onWheel={(e) => e.currentTarget.blur()}
             min="2000"
             max="2100"
             placeholder="YYYY"

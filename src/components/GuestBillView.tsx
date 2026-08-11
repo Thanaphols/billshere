@@ -16,6 +16,8 @@ type ParticipantRow = {
   guestClaimToken: string | null;
   slipImagePath: string | null;
   paymentStatus: string;
+  packId: string | null;
+  packName: string | null;
   user?: { name: string } | null;
 };
 
@@ -52,6 +54,14 @@ export default function GuestBillView({
   const myKey = myParticipantIds.join(",");
 
   const [name, setName] = useState(existingName);
+  const [collapsedPacks, setCollapsedPacks] = useState<Set<string>>(new Set());
+  const togglePack = (id: string) =>
+    setCollapsedPacks((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
   const [selected, setSelected] = useState<Set<string>>(new Set(myParticipantIds));
   const [claimPending, setClaimPending] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -154,50 +164,109 @@ export default function GuestBillView({
           />
         )}
 
-        {participants.map((p) => {
-          const isMine = mine.has(p.id);
-          const isUnassigned = !p.userId && !p.guestName && !p.guestClaimToken;
-          const locked = !!p.slipImagePath;
-          const displayName = p.user?.name ?? p.guestName ?? null;
-          const selectable = !closed && !locked && (isMine || isUnassigned);
+        {(() => {
+          const renderRow = (p: ParticipantRow, inPack = false, isLast = false) => {
+            const isMine = mine.has(p.id);
+            const isUnassigned = !p.userId && !p.guestName && !p.guestClaimToken;
+            const locked = !!p.slipImagePath;
+            const displayName = p.user?.name ?? p.guestName ?? null;
+            const selectable = !closed && !locked && (isMine || isUnassigned);
+
+            return (
+              <label
+                key={p.id}
+                className={`flex items-center gap-2.5 ${
+                  inPack ? "relative pl-8 py-2 rounded-lg" : "rounded-xl border border-border p-2.5"
+                } ${selectable ? "cursor-pointer hover:bg-muted/10" : ""}`}
+              >
+                {inPack && (
+                  <>
+                    <span
+                      aria-hidden
+                      className={`absolute left-3 top-0 border-l border-border/70 ${isLast ? "h-1/2" : "bottom-0"}`}
+                    />
+                    <span aria-hidden className="absolute left-3 top-1/2 w-3 border-t border-border/70" />
+                  </>
+                )}
+                {selectable ? (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.id)}
+                    onChange={() => toggleSel(p.id)}
+                    className="w-4 h-4 shrink-0 accent-brand"
+                  />
+                ) : locked && isMine ? (
+                  <input type="checkbox" checked disabled className="w-4 h-4 shrink-0 accent-brand" />
+                ) : (
+                  <span className="w-4 shrink-0" />
+                )}
+
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-foreground">{p.itemName}</span>
+                  {locked && isMine ? (
+                    <span className="block text-[10px] text-brand font-semibold">
+                      คุณจองไว้ · {paymentLabel(p.paymentStatus)}
+                    </span>
+                  ) : !isMine && !isUnassigned ? (
+                    <span className="block text-[10px] text-muted">
+                      {displayName ? `ถูกจองโดย ${displayName}` : "มีคนอื่นจองไว้แล้ว"}
+                    </span>
+                  ) : null}
+                </span>
+
+                <span className="shrink-0 text-xs font-bold text-foreground">{baht(p.amountToPay)}</span>
+              </label>
+            );
+          };
+
+          // Group promo-pack sub-items under a pack header; plain items render as-is.
+          const packMap = new Map<string, ParticipantRow[]>();
+          const singles: ParticipantRow[] = [];
+          for (const p of participants) {
+            if (p.packId) {
+              const arr = packMap.get(p.packId) ?? [];
+              arr.push(p);
+              packMap.set(p.packId, arr);
+            } else singles.push(p);
+          }
 
           return (
-            <label
-              key={p.id}
-              className={`flex items-center gap-2.5 rounded-xl border border-border p-2.5 ${
-                selectable ? "cursor-pointer hover:bg-muted/10" : ""
-              }`}
-            >
-              {selectable ? (
-                <input
-                  type="checkbox"
-                  checked={selected.has(p.id)}
-                  onChange={() => toggleSel(p.id)}
-                  className="w-4 h-4 shrink-0 accent-brand"
-                />
-              ) : locked && isMine ? (
-                <input type="checkbox" checked disabled className="w-4 h-4 shrink-0 accent-brand" />
-              ) : (
-                <span className="w-4 shrink-0" />
-              )}
-
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-semibold text-foreground">{p.itemName}</span>
-                {locked && isMine ? (
-                  <span className="block text-[10px] text-brand font-semibold">
-                    คุณจองไว้ · {paymentLabel(p.paymentStatus)}
-                  </span>
-                ) : !isMine && !isUnassigned ? (
-                  <span className="block text-[10px] text-muted">
-                    {displayName ? `ถูกจองโดย ${displayName}` : "มีคนอื่นจองไว้แล้ว"}
-                  </span>
-                ) : null}
-              </span>
-
-              <span className="shrink-0 text-xs font-bold text-foreground">{baht(p.amountToPay)}</span>
-            </label>
+            <>
+              {[...packMap.entries()].map(([packId, rows]) => {
+                const pName = rows[0].packName ?? "แพ็ค";
+                const pTotal = rows.reduce((s, x) => s + x.amountToPay, 0);
+                const open = !collapsedPacks.has(packId);
+                return (
+                  <div key={"pack:" + packId} className="rounded-xl border border-border p-2">
+                    <button
+                      type="button"
+                      onClick={() => togglePack(packId)}
+                      className="flex w-full items-center justify-between gap-2 px-1 py-1 text-left"
+                    >
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span className="shrink-0 rounded-md bg-brand/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-brand">
+                          แพ็ค
+                        </span>
+                        <span className="min-w-0 truncate text-base font-extrabold text-foreground">{pName}</span>
+                        <span className="text-[10px] text-muted shrink-0">{open ? "▲" : "▼"}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-[9px] font-semibold uppercase tracking-wide text-muted/70">รวม</span>
+                        <span className="text-sm font-extrabold text-brand">{baht(pTotal)}</span>
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="mt-1">
+                        {rows.map((r, i) => renderRow(r, true, i === rows.length - 1))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {singles.map((p) => renderRow(p))}
+            </>
           );
-        })}
+        })()}
 
         {!closed && (
           <button

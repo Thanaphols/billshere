@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
@@ -50,6 +51,7 @@ export default function ShareBillModal({
   const [generating, setGenerating] = useState(false);
   const [guestLink, setGuestLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showFull, setShowFull] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const { t, lang } = useI18n();
 
@@ -346,11 +348,11 @@ export default function ShareBillModal({
     generateImage();
   }, [isOpen, ownerQr, ownerName, participants, postTitle, postNote, lang, deliveryFee, deliveryPersonCount]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl border border-border flex flex-col space-y-4 animate-fade-in my-8">
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+      <div className="w-full max-w-sm max-h-[90dvh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl border border-border flex flex-col space-y-4 animate-fade-in">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border pb-2.5">
           <h3 className="text-sm font-bold text-foreground">
@@ -405,7 +407,8 @@ export default function ShareBillModal({
               <img
                 src={imgUrl}
                 alt="Bill summary receipt"
-                className="w-full h-auto object-contain max-h-[60vh] select-none"
+                onClick={() => setShowFull(true)}
+                className="w-full h-auto object-contain max-h-[60vh] select-none cursor-zoom-in"
               />
             )
           )}
@@ -413,18 +416,6 @@ export default function ShareBillModal({
 
         {/* Hidden Canvas for Generation */}
         <canvas ref={canvasRef} className="hidden" />
-
-        {/* Info */}
-        <div className="rounded-xl bg-background/80 p-3 border border-border/50 text-[10px] text-muted flex items-start gap-1.5 leading-relaxed">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-amber-500 shrink-0 mt-0.5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18v-5.25m0 5.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0-9.75h.008v.008H12V8.25Z" />
-          </svg>
-          <span>
-            {lang === "th"
-              ? "บนมือถือ: กดค้างที่รูปภาพเพื่อบันทึกรูป หรือกดปุ่มด้านล่างเพื่อแชร์เข้าแชท"
-              : "On Mobile: Long press the image to save, or use buttons below to share."}
-          </span>
-        </div>
 
         {/* Actions */}
         <div className="flex gap-2">
@@ -465,6 +456,30 @@ export default function ShareBillModal({
           )}
         </div>
       </div>
-    </div>
+
+      {/* Full-screen image viewer — tap anywhere or the ✕ to close */}
+      {showFull && imgUrl && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-black/90 p-4"
+          onClick={() => setShowFull(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setShowFull(false)}
+            aria-label="close"
+            className="absolute top-4 right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white text-xl hover:bg-white/25 transition"
+          >
+            ✕
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgUrl}
+            alt="Bill summary receipt"
+            className="max-h-full max-w-full object-contain select-none cursor-zoom-out"
+          />
+        </div>
+      )}
+    </div>,
+    document.body
   );
 }

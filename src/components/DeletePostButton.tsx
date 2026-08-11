@@ -14,7 +14,7 @@ export default function DeletePostButton({ postId }: { postId: string }) {
         onClick={() => setIsModalOpen(true)}
         className="w-full rounded-xl border border-red-200 bg-red-50 py-2.5 text-sm font-bold text-red-600 hover:bg-red-100 transition active:scale-[.98] select-none cursor-pointer flex items-center justify-center gap-1.5"
       >
-        {lang === "th" ? "ลบบิลนี้ถาวร" : "Delete Bill Permanently"}
+        {lang === "th" ? "ลบบิลนี้" : "Delete Bill"}
       </button>
 
       <DeletePostModal
