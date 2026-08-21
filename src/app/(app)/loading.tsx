@@ -5,7 +5,7 @@ export default function AppLoading() {
         {/* Modern, premium spinner */}
         <div className="relative w-12 h-12 flex items-center justify-center">
           <div className="absolute inset-0 rounded-full border-4 border-brand/10" />
-          <div className="absolute inset-0 rounded-full border-4 border-t-brand animate-spin" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-brand animate-spin" />
         </div>
         <p className="text-xs font-semibold text-muted tracking-wider animate-pulse mt-2">
           กำลังโหลดข้อมูล...
