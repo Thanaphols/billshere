@@ -52,3 +52,11 @@ body {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* Hide the scrollbar but keep the element scrollable. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}

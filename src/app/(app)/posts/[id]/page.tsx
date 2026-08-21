@@ -115,6 +115,7 @@ export default async function PostDetailPage({
         discountValue={post.discountValue}
         ownerQr={ownerQr}
         ownerName={post.owner.name}
+        ownerPromptpay={post.owner.promptpayNumber}
         postTitle={post.title}
         postNote={post.note}
       />
