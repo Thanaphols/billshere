@@ -82,6 +82,10 @@ model Participant {
   guestClaimToken String?
   itemName      String
   price         Float
+  // Per-item discount in baht, subtracted from this row's price BEFORE the
+  // bill-level discount/delivery split. 0 = no item discount. Independent of
+  // (and stacks with) Post.discountValue — see computeBill.
+  itemDiscount  Float         @default(0)
   // Promo-pack grouping: a "pack" (e.g. "น้ำ 1 แถม 1", 30฿) is a label, never billed.
   // Its sub-items are ordinary billable rows sharing packId; Σ(sub price) ≤ packPrice
   // is enforced at write time (addMenuItems/editMenuItem). Null = plain item.

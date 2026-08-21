@@ -3,11 +3,13 @@
 import { useState, useTransition } from "react";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
+import Dropdown from "@/components/Dropdown";
 import type { NewMenuItem } from "@/actions/posts";
 
 type SubRow = {
   itemName: string;
   price: string;
+  discount: string;
   assignMode: "user" | "guest";
   userId: string;
   guestName: string;
@@ -17,6 +19,7 @@ type SubRow = {
 const emptySubRow = (): SubRow => ({
   itemName: "",
   price: "",
+  discount: "",
   assignMode: "user",
   userId: "",
   guestName: "",
@@ -34,6 +37,7 @@ export default function AddMenuItemForm({
   // Normal-mode fields (single draft + staging list).
   const [itemName, setItemName] = useState("");
   const [price, setPrice] = useState("");
+  const [discount, setDiscount] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [userId, setUserId] = useState("");
   const [guestName, setGuestName] = useState("");
@@ -51,6 +55,7 @@ export default function AddMenuItemForm({
   const clearFields = () => {
     setItemName("");
     setPrice("");
+    setDiscount("");
     setQuantity("1");
     setUserId("");
     setGuestName("");
@@ -78,6 +83,7 @@ export default function AddMenuItemForm({
     return {
       itemName: itemName.trim(),
       price: p,
+      discount: Math.min(p, Math.max(0, parseFloat(discount) || 0)),
       quantity: Math.max(1, parseInt(quantity, 10) || 1),
       userId: assignMode === "user" ? userId || null : null,
       guestName: assignMode === "guest" ? guestName.trim() || null : null,
@@ -151,6 +157,7 @@ export default function AddMenuItemForm({
     const all: NewMenuItem[] = validSubs.map((r) => ({
       itemName: r.itemName.trim(),
       price: parseFloat(r.price),
+      discount: Math.min(parseFloat(r.price), Math.max(0, parseFloat(r.discount) || 0)),
       quantity: 1,
       userId: r.assignMode === "user" ? r.userId || null : null,
       guestName: r.assignMode === "guest" ? r.guestName.trim() || null : null,
@@ -203,28 +210,18 @@ export default function AddMenuItemForm({
         </button>
       </div>
       {curMode === "user" ? (
-        <div className="relative">
-          <select
-            value={curUserId}
-            onChange={(e) => {
-              onUser(e.target.value);
-              onGuest("");
-            }}
-            className="w-full rounded-xl border border-border bg-white px-3 pr-10 py-3 text-sm outline-none focus:border-brand appearance-none cursor-pointer"
-          >
-            <option value="">{lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —"}</option>
-            {allUsers.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.email})
-              </option>
-            ))}
-          </select>
-          <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-muted">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3.5 h-3.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-            </svg>
-          </div>
-        </div>
+        <Dropdown
+          value={curUserId}
+          onChange={(v) => {
+            onUser(v);
+            onGuest("");
+          }}
+          placeholder={lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —"}
+          options={[
+            { value: "", label: lang === "th" ? "— เลือกสมาชิกในระบบ —" : "— Choose Member —" },
+            ...allUsers.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` })),
+          ]}
+        />
       ) : (
         <input
           placeholder={lang === "th" ? "พิมพ์ชื่อคนจ่ายเอง (ไม่มีบัญชี)" : "Type guest name"}
@@ -326,6 +323,16 @@ export default function AddMenuItemForm({
               />
             </div>
           </div>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder={lang === "th" ? "ส่วนลดต่อรายการ (บาท) — 0 ถ้าไม่มี" : "Item discount (Baht) — 0 if none"}
+            value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            onWheel={(e) => e.currentTarget.blur()}
+            className={`no-spinner ${inputCls}`}
+          />
 
           <div className="border-t border-dashed border-border pt-3 space-y-2.5">
             <span className="block text-xs font-semibold text-muted">
@@ -448,6 +455,16 @@ export default function AddMenuItemForm({
                         onChange={(e) => updateSub(i, { price: e.target.value })}
                         onWheel={(e) => e.currentTarget.blur()}
                         placeholder={lang === "th" ? "ราคา (บาท)" : "Price (Baht)"}
+                        className={`no-spinner ${inputCls}`}
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={r.discount}
+                        onChange={(e) => updateSub(i, { discount: e.target.value })}
+                        onWheel={(e) => e.currentTarget.blur()}
+                        placeholder={lang === "th" ? "ส่วนลด (บาท) — 0 ถ้าไม่มี" : "Discount (Baht) — 0 if none"}
                         className={`no-spinner ${inputCls}`}
                       />
                       {ownerPicker(

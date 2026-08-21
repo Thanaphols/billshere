@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { DiscountType } from "@prisma/client";
-import { computeBill, round2, type BillRow } from "@/lib/discount";
+import { computeBill, deliverySplit, round2, type BillRow } from "@/lib/discount";
 import { baht, deliveryFeeText } from "@/lib/format";
 import SubmitButton from "@/components/SubmitButton";
 import Dropdown from "@/components/Dropdown";
@@ -15,6 +15,7 @@ export default function DiscountSettings({
   defaultValue = 0,
   defaultDeliveryFee = 0,
   defaultDeliveryPersonCount = 1,
+  ownerKey,
 }: {
   action: (formData: FormData) => void;
   /** Current bill rows, for the live preview (price + payer grouping). */
@@ -23,6 +24,8 @@ export default function DiscountSettings({
   defaultValue?: number;
   defaultDeliveryFee?: number;
   defaultDeliveryPersonCount?: number;
+  /** ownerKey of the bill owner — absorbs the delivery rounding remainder. */
+  ownerKey?: string;
 }) {
   // Legacy NONE behaves as PERCENT (pay your own items).
   const [type, setType] = useState<DiscountType>(defaultType === "NONE" ? "PERCENT" : defaultType);
@@ -36,12 +39,20 @@ export default function DiscountSettings({
   const N = Math.max(1, Number(personCount) || 1);
 
   // Live preview — same pure helper the server uses.
-  const preview = computeBill(rows, { discountType: type, discountValue: D, deliveryFee: S, personCount: N });
+  const preview = computeBill(rows, { discountType: type, discountValue: D, deliveryFee: S, personCount: N, ownerKey });
   const grandTotal = round2(preview.reduce((a, r) => a + r.amountToPay, 0));
   const itemsTotal = round2(rows.reduce((a, r) => a + r.price, 0));
-  const perHeadDelivery = round2(S / N);
+  const { perHead: perHeadDelivery, remainder: deliveryRemainder, ownerShare: ownerDelivery } = deliverySplit(S, N);
   const perHeadDiscount = round2(D / N);
   const equalPerPerson = Math.max(0, round2((itemsTotal - D + S) / N));
+
+  // The discount actually deducted must not exceed the food total, or the bill
+  // zeroes out / reads as nonsensical. In PERCENT the D/N share is subtracted
+  // once per payer group, so the effective discount is (D/N)·groupCount — this
+  // is what blows past the total when N is smaller than the real payer count.
+  const groupCount = new Set(rows.map((r) => r.ownerKey)).size || 1;
+  const effectiveDiscount = type === "FIXED" ? D : round2((D / N) * groupCount);
+  const overDiscount = itemsTotal > 0 && effectiveDiscount > itemsTotal;
 
   const inputCls =
     "no-spinner w-full rounded-xl border border-border bg-white px-3 py-2.5 text-xs outline-none focus:border-brand";
@@ -68,8 +79,15 @@ export default function DiscountSettings({
               onChange={(e) => setDiscount(e.target.value === "" ? "" : parseFloat(e.target.value))}
               onBlur={() => setDiscount((v) => (v === "" || Number.isNaN(v) ? 0 : v))}
               onWheel={(e) => e.currentTarget.blur()}
-              className={inputCls}
+              className={`${inputCls} ${overDiscount ? "border-red-400 focus:border-red-400" : ""}`}
             />
+            {overDiscount && (
+              <span className="mt-1 block text-[10px] font-medium text-red-500">
+                {lang === "th"
+                  ? `ส่วนลดที่หักจริง ${baht(effectiveDiscount)} เกินราคารวม ${baht(itemsTotal)}`
+                  : `Effective discount ${baht(effectiveDiscount)} exceeds total ${baht(itemsTotal)}`}
+              </span>
+            )}
           </label>
         </div>
         <div className="flex-1">
@@ -147,6 +165,16 @@ export default function DiscountSettings({
             <span>{lang === "th" ? "ค่าส่งต่อคน" : "Delivery / person"}</span>
             <span className="font-semibold text-foreground">{deliveryFeeText(perHeadDelivery, lang)}</span>
           </div>
+          {deliveryRemainder > 0 && (
+            <div className="flex justify-between text-muted">
+              <span>
+                {lang === "th"
+                  ? `เศษ ${baht(deliveryRemainder)} → เจ้าของบิลจ่าย`
+                  : `Remainder ${baht(deliveryRemainder)} → bill owner pays`}
+              </span>
+              <span className="font-semibold text-foreground">{baht(ownerDelivery)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-muted">
             <span>{lang === "th" ? "ส่วนลดต่อคน" : "Discount / person"}</span>
             <span className="font-semibold text-foreground">-{baht(perHeadDiscount)}</span>
@@ -165,7 +193,7 @@ export default function DiscountSettings({
       )}
 
       <div className="pt-1">
-        <SubmitButton>{lang === "th" ? "คำนวณราคา" : "Calculate Split"}</SubmitButton>
+        <SubmitButton disabled={overDiscount}>{lang === "th" ? "คำนวณราคา" : "Calculate Split"}</SubmitButton>
       </div>
     </form>
   );

@@ -33,12 +33,13 @@ async function recompute(postId: string): Promise<void> {
   if (!post) return;
 
   const results = computeBill(
-    post.participants.map((p) => ({ id: p.id, price: p.price, ownerKey: ownerKeyOf(p) })),
+    post.participants.map((p) => ({ id: p.id, price: p.price, discount: p.itemDiscount, ownerKey: ownerKeyOf(p) })),
     {
       discountType: post.discountType,
       discountValue: post.discountValue,
       deliveryFee: post.deliveryFee,
       personCount: post.deliveryPersonCount,
+      ownerKey: "u:" + post.ownerId,
     }
   );
 
@@ -85,9 +86,15 @@ export async function updatePostSettings(
 ): Promise<void> {
   await assertOwner(postId);
 
+  // Discount can't exceed the food total — clamp server-side as a safety net
+  // (the settings form also blocks this client-side).
+  const totalPrice =
+    (await prisma.participant.aggregate({ where: { postId }, _sum: { price: true } }))._sum.price ?? 0;
+  const rawDiscount = Math.max(0, num(formData, "discountValue"));
+
   const updateData: any = {
     discountType: parseDiscountType(str(formData, "discountType")),
-    discountValue: num(formData, "discountValue"),
+    discountValue: Math.min(rawDiscount, totalPrice),
     deliveryFee: Math.max(0, num(formData, "deliveryFee")),
     deliveryPersonCount: Math.max(1, Math.round(num(formData, "deliveryPersonCount")) || 1),
   };
@@ -129,6 +136,8 @@ export type NewMenuItem = {
   itemName: string;
   price: number;
   quantity: number;
+  /** Per-item discount in baht (0 = none). Clamped to [0, price] server-side. */
+  discount?: number;
   userId?: string | null;
   guestName?: string | null;
   // Promo-pack: sub-items sharing a packId are billed individually but grouped
@@ -168,6 +177,8 @@ export async function addMenuItems(
     const isPack = !!it.packId;
     // Pack sub-items never expand by quantity — that would multiply price into the cap.
     const qty = isPack ? 1 : Math.max(1, Math.floor(Number(it.quantity)) || 1);
+    // Item discount can't exceed the item's own price.
+    const itemDiscount = Math.min(price, Math.max(0, Number(it.discount) || 0));
     const userId = it.userId || null;
     const guestName = userId ? null : (it.guestName || "").trim() || null;
     const packFields = isPack
@@ -181,6 +192,7 @@ export async function addMenuItems(
       postId,
       itemName: qty === 1 ? itemName : `${itemName} (${i + 1}/${qty})`,
       price,
+      itemDiscount,
       userId,
       guestName,
       ...packFields,
@@ -207,6 +219,11 @@ export async function editMenuItem(
   const itemName = str(formData, "itemName") || p.itemName;
   const price = num(formData, "price");
   if (price <= 0) return;
+  // Item discount is optional; keep the existing value if the field is absent,
+  // and clamp to [0, price] so it can never exceed the item's own price.
+  const itemDiscount = formData.has("discount")
+    ? Math.min(price, Math.max(0, num(formData, "discount")))
+    : Math.min(price, p.itemDiscount);
 
   // Keep the promo-pack cap intact when editing a sub-item's price.
   if (p.packId && p.packPrice != null) {
@@ -220,7 +237,7 @@ export async function editMenuItem(
 
   await prisma.participant.update({
     where: { id: participantId },
-    data: { itemName, price },
+    data: { itemName, price, itemDiscount },
   });
   await recompute(p.postId);
   revalidatePath(`/posts/${p.postId}`);

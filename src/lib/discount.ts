@@ -3,9 +3,16 @@ import type { DiscountType } from "@prisma/client";
 export type BillRow = {
   id: string;
   price: number;
+  /** Per-item discount in baht, subtracted from price before the bill-level split. Default 0. */
+  discount?: number;
   /** Groups rows owned by the same payer: userId → guestClaimToken → guestName → per-row for unassigned. */
   ownerKey: string;
 };
+
+/** Price this row actually contributes to the bill — original minus its own item discount, floored at 0. */
+function effPrice(r: BillRow): number {
+  return Math.max(0, r.price - (r.discount ?? 0));
+}
 
 export type BillSettings = {
   /** FIXED = everyone pays equal; PERCENT (and legacy NONE) = pay your own items. */
@@ -16,7 +23,21 @@ export type BillSettings = {
   deliveryFee: number;
   /** N — manual head count; divides BOTH discount and delivery. */
   personCount: number;
+  /** ownerKey of the bill owner — absorbs the delivery rounding remainder. Omit to drop it. */
+  ownerKey?: string;
 };
+
+/**
+ * Split the delivery fee into a per-head amount everyone pays and the rounding
+ * remainder. Rounding S/N to satang leaves S − perHead·N unpaid (฿10 / 3 →
+ * ฿3.33 each, ฿0.01 short); the bill owner covers it, so ฿3.33 + ฿0.01 = ฿3.34.
+ */
+export function deliverySplit(deliveryFee: number, personCount: number) {
+  const N = Math.max(1, Math.round(personCount) || 1);
+  const perHead = round2(Math.max(0, deliveryFee) / N);
+  const remainder = round2(Math.max(0, deliveryFee) - perHead * N);
+  return { perHead, remainder, ownerShare: round2(perHead + remainder) };
+}
 
 export type BillResult = {
   id: string;
@@ -31,8 +52,10 @@ export type BillResult = {
  *
  * Let Σ = sum of all prices, D = discountValue, S = deliveryFee, N = personCount,
  * ownItems = sum of one payer's rows. Per payer:
- *   FIXED   → (Σ − D + S) / N        (everyone equal, regardless of items)
- *   PERCENT → ownItems − D/N + S/N   (pay your own items, share discount+delivery)
+ *   FIXED   → (Σ − D)/N + del        (everyone equal, regardless of items)
+ *   PERCENT → ownItems − D/N + del   (pay your own items, share discount+delivery)
+ * where del = deliverySplit(S, N).perHead, and the owner group pays .ownerShare
+ * instead so the rounding remainder is not silently dropped.
  * Clamped at 0.
  *
  * A payer may own several rows, but amountToPay is stored per row, so each payer's
@@ -50,7 +73,8 @@ export function computeBill(rows: BillRow[], s: BillSettings): BillResult[] {
   const N = Math.max(1, Math.round(s.personCount) || 1);
   const D = Math.max(0, s.discountValue);
   const S = Math.max(0, s.deliveryFee);
-  const total = rows.reduce((a, r) => a + r.price, 0);
+  const total = rows.reduce((a, r) => a + effPrice(r), 0);
+  const delivery = deliverySplit(S, N);
 
   // Group rows by ownerKey, preserving first-seen order.
   const groups = new Map<string, BillRow[]>();
@@ -62,23 +86,39 @@ export function computeBill(rows: BillRow[], s: BillSettings): BillResult[] {
 
   const out = new Map<string, BillResult>();
   for (const g of groups.values()) {
-    const ownItems = g.reduce((a, r) => a + r.price, 0);
+    const ownItems = g.reduce((a, r) => a + effPrice(r), 0);
+    // Everyone pays the rounded per-head delivery; the owner also eats the remainder.
+    const deliveryShare =
+      s.ownerKey != null && g[0].ownerKey === s.ownerKey ? delivery.ownerShare : delivery.perHead;
+    // What the payer actually owes — delivery folded in.
     const personTotal = Math.max(
       0,
-      s.discountType === "FIXED" ? (total - D + S) / N : ownItems - D / N + S / N
+      (s.discountType === "FIXED" ? (total - D) / N : ownItems - D / N) + deliveryShare
+    );
+    // Same figure WITHOUT delivery — the reference for discountShare, so delivery
+    // (an addition) never cancels out the discount shown on a row.
+    const personNoDelivery = Math.max(
+      0,
+      s.discountType === "FIXED" ? (total - D) / N : ownItems - D / N
     );
 
     let acc = 0;
+    let accRef = 0;
     g.forEach((r, i) => {
-      const share =
-        i === g.length - 1
-          ? round2(personTotal - acc) // last row absorbs rounding drift
-          : round2(ownItems > 0 ? personTotal * (r.price / ownItems) : personTotal / g.length);
+      const isLast = i === g.length - 1;
+      const frac = ownItems > 0 ? effPrice(r) / ownItems : 1 / g.length;
+      const share = isLast
+        ? round2(personTotal - acc) // last row absorbs rounding drift
+        : round2(personTotal * frac);
+      const refShare = isLast ? round2(personNoDelivery - accRef) : round2(personNoDelivery * frac);
       acc = round2(acc + share);
+      accRef = round2(accRef + refShare);
       out.set(r.id, {
         id: r.id,
         amountToPay: share,
-        discountShare: round2(Math.max(0, r.price - share)),
+        // Discount shown = original price − delivery-excluded payable, i.e. the
+        // per-item discount plus the row's bill-level discount share (no delivery).
+        discountShare: round2(Math.max(0, r.price - refShare)),
       });
     });
   }
@@ -188,6 +228,27 @@ export function demo(): void {
   );
   console.assert(round2(m[0].amountToPay + m[1].amountToPay) === 135, "p1 multi-row sum 135", m);
 
+  // Per-item discount stacks with the bill-level split: A's effective price is
+  // 100−20=80, so PERCENT (no bill discount/delivery) pays 80, and discountShare
+  // reports the full 20 off the original.
+  const d = computeBill(
+    [
+      { id: "A", price: 100, discount: 20, ownerKey: "p1" },
+      { id: "B", price: 60, ownerKey: "p2" },
+    ],
+    { discountType: "PERCENT", discountValue: 0, deliveryFee: 0, personCount: 2 }
+  );
+  console.assert(d[0].amountToPay === 80 && d[0].discountShare === 20, "item discount 80/-20", d);
+  console.assert(d[1].amountToPay === 60, "undiscounted row unchanged", d);
+
+  // Delivery must NOT cancel the item discount shown: 30−5 item disc, +10/3 delivery.
+  // Payable = 25 + 3.33 = 28.33, but discountShare stays the pure 5 off.
+  const dd = computeBill(
+    [{ id: "A", price: 30, discount: 5, ownerKey: "p1" }],
+    { discountType: "PERCENT", discountValue: 0, deliveryFee: 10, personCount: 3 }
+  );
+  console.assert(dd[0].amountToPay === 28.33 && dd[0].discountShare === 5, "delivery keeps discount at 5", dd);
+
   // groupByPayer: unassigned rows collapse into one trailing group.
   const g = groupByPayer([
     { userId: "u1", guestName: null, user: { name: "A" } },
@@ -199,6 +260,21 @@ export function demo(): void {
   console.assert(g.length === 3, "3 groups (A, B, unassigned)", g);
   console.assert(g[0].name === "A" && g[0].items.length === 2, "A has 2", g);
   console.assert(g[2].kind === "unassigned" && g[2].items.length === 2, "unassigned last, 2 rows", g);
+
+  // Delivery rounding remainder lands on the bill owner: ฿10 / 3 → ฿3.33 each,
+  // owner ฿3.34, and the three shares re-sum to exactly ฿10.
+  const ds = deliverySplit(10, 3);
+  console.assert(ds.perHead === 3.33 && ds.remainder === 0.01 && ds.ownerShare === 3.34, "10/3 split", ds);
+  const rem = computeBill(
+    [
+      { id: "A", price: 0, ownerKey: "u:owner" },
+      { id: "B", price: 0, ownerKey: "p2" },
+      { id: "C", price: 0, ownerKey: "p3" },
+    ],
+    { discountType: "PERCENT", discountValue: 0, deliveryFee: 10, personCount: 3, ownerKey: "u:owner" }
+  );
+  console.assert(rem[0].amountToPay === 3.34, "owner absorbs remainder", rem);
+  console.assert(round2(rem.reduce((a, r) => a + r.amountToPay, 0)) === 10, "delivery re-sums to 10", rem);
 
   console.log("discount.demo OK");
 }
