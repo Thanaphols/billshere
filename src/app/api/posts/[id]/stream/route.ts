@@ -10,6 +10,11 @@ export async function GET(
   const encoder = new TextEncoder();
   const customReadable = new ReadableStream({
     start(controller) {
+      // Flush immediately: without a first byte the browser never fires
+      // "open" and phones/proxies may drop a silent connection before the
+      // 15s keepalive ever lands.
+      controller.enqueue(encoder.encode(": connected\n\n"));
+
       // Keep alive interval to prevent browser/proxy connection timeout
       const keepAliveInterval = setInterval(() => {
         try {

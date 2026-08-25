@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { baht } from "@/lib/format";
 import { deliverySplit, groupByPayer, ownerKeyOf, round2 } from "@/lib/discount";
 import type { DiscountType } from "@prisma/client";
@@ -117,8 +117,6 @@ export default function ParticipantTable({
       return n;
     });
   const activeFilterCount = statusFilters.size + claimFilters.size;
-  const [isPending, startTransition] = useTransition();
-  const router = useRouter();
   const { t, lang } = useI18n();
 
   // Non-owner self-claim: tick your items, then confirm (batch sync).
@@ -150,21 +148,7 @@ export default function ParticipantTable({
       }
     });
 
-  useEffect(() => {
-    const eventSource = new EventSource(`/api/posts/${postId}/stream`);
-
-    eventSource.onmessage = (event) => {
-      if (event.data === "update") {
-        startTransition(() => {
-          router.refresh();
-        });
-      }
-    };
-
-    return () => {
-      eventSource.close();
-    };
-  }, [postId, router]);
+  const isPending = useLiveRefresh(`/api/posts/${postId}/stream`);
 
   const toggleExpand = (id: string) => {
     setEditErrors((e) => ({ ...e, [id]: "" }));

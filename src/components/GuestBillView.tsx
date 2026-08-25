@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useLiveRefresh } from "@/lib/useLiveRefresh";
 import { baht, paymentLabel } from "@/lib/format";
 import { syncGuestClaims, uploadSlipAsGuest } from "@/actions/guest";
 import type { SlipState } from "@/actions/slips";
@@ -44,7 +44,6 @@ export default function GuestBillView({
   myQr: string | null;
   myAmount: number;
 }) {
-  const router = useRouter();
   const closed = postStatus === "CLOSED";
   const mine = new Set(myParticipantIds);
 
@@ -96,13 +95,7 @@ export default function GuestBillView({
     undefined
   );
 
-  useEffect(() => {
-    const eventSource = new EventSource(`/api/posts/${postId}/stream`);
-    eventSource.onmessage = (event) => {
-      if (event.data === "update") router.refresh();
-    };
-    return () => eventSource.close();
-  }, [postId, router]);
+  useLiveRefresh(`/api/posts/${postId}/stream`);
 
   const confirmClaims = async () => {
     if (selected.size > 0 && !name.trim()) return;
