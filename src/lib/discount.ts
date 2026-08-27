@@ -199,10 +199,58 @@ export function ownerKeyOf(p: {
 
 /** Human label for the split setting. */
 export function discountLabel(type: DiscountType, discountValue: number): string {
-  if (type === "FIXED") return "หารเท่ากันทุกรายการ (ทุกคนจ่ายเท่ากัน)";
+  if (type === "FIXED") return "หารทั้งบิลตามจำนวนคน (ทุกคนจ่ายเท่ากัน)";
   return discountValue > 0
-    ? `หารตามที่สั่ง · ส่วนลด ฿${round2(discountValue)}`
-    : "หารตามที่สั่ง";
+    ? `หารรายการตามจำนวนคน · ส่วนลด ฿${round2(discountValue)}`
+    : "หารรายการตามจำนวนคน";
+}
+
+/**
+ * Split payer groups into receipt pages of at most `maxRows` item rows.
+ *
+ * A group moves to the next page rather than being cut in half — unless it is too
+ * big to fit on a page of its own, in which case it spills over: every chunk keeps
+ * the payer name (`cont` flags the continuation) and only the final chunk carries
+ * the subtotal. Always returns at least one page.
+ */
+export function paginateGroups<G extends { items: unknown[]; lines: unknown[] }>(
+  groups: G[],
+  maxRows: number
+): (G & { cont: boolean; showSubtotal: boolean })[][] {
+  type Chunk = G & { cont: boolean; showSubtotal: boolean };
+  const rowCap = Math.max(1, Math.round(maxRows) || 1);
+  const pages: Chunk[][] = [];
+  let page: Chunk[] = [];
+  let rows = 0;
+  const flush = () => {
+    pages.push(page);
+    page = [];
+    rows = 0;
+  };
+
+  for (const g of groups) {
+    for (let i = 0; i < g.items.length; ) {
+      const rest = g.items.length - i;
+      // Prefer starting a fresh page over splitting; spill only on an empty page.
+      if (page.length && rest > rowCap - rows) {
+        flush();
+        continue;
+      }
+      const take = Math.min(rest, rowCap - rows);
+      page.push({
+        ...g,
+        items: g.items.slice(i, i + take),
+        lines: g.lines.slice(i, i + take),
+        cont: i > 0,
+        showSubtotal: i + take === g.items.length,
+      } as Chunk);
+      rows += take;
+      i += take;
+      if (rows === rowCap && i < g.items.length) flush();
+    }
+  }
+  pages.push(page); // a bill with no items still renders one (empty) page
+  return pages;
 }
 
 /** assert-based self-check — run via a throwaway script, no test framework. */
@@ -275,6 +323,19 @@ export function demo(): void {
   );
   console.assert(rem[0].amountToPay === 3.34, "owner absorbs remainder", rem);
   console.assert(round2(rem.reduce((a, r) => a + r.amountToPay, 0)) === 10, "delivery re-sums to 10", rem);
+
+  // Pagination: a 6-item payer cannot fit a 5-row page, so it spills — both chunks
+  // keep the name, the continuation is flagged, and only the tail owes a subtotal.
+  const mk = (n: number) => ({ items: Array.from({ length: n }, (_, i) => i), lines: Array.from({ length: n }, () => []) });
+  const spill = paginateGroups([mk(6)], 5);
+  console.assert(spill.length === 2, "6 rows spill onto 2 pages", spill);
+  console.assert(spill[0][0].items.length === 5 && !spill[0][0].cont && !spill[0][0].showSubtotal, "head chunk", spill);
+  console.assert(spill[1][0].items.length === 1 && spill[1][0].cont && spill[1][0].showSubtotal, "tail chunk", spill);
+  // A group that still fits is never cut: 3 + 4 rows go to separate pages, whole.
+  const whole = paginateGroups([mk(3), mk(4)], 5);
+  console.assert(whole.length === 2 && whole[0].length === 1 && whole[1].length === 1, "no mid-group cut", whole);
+  console.assert(whole.every((pg) => pg.every((c) => c.showSubtotal && !c.cont)), "whole groups keep subtotals", whole);
+  console.assert(paginateGroups([], 5).length === 1, "empty bill still yields a page");
 
   console.log("discount.demo OK");
 }

@@ -42,6 +42,8 @@ export default function AddMenuItemForm({
   const [userId, setUserId] = useState("");
   const [guestName, setGuestName] = useState("");
   const [assignMode, setAssignMode] = useState<"user" | "guest">("user");
+  // Primary mode (replaces the modal title): add a menu item vs. assign its owner.
+  const [topTab, setTopTab] = useState<"menu" | "owner">("menu");
   const [items, setItems] = useState<NewMenuItem[]>([]);
   // Pack-mode fields.
   const [packName, setPackName] = useState("");
@@ -50,7 +52,7 @@ export default function AddMenuItemForm({
   const [subRows, setSubRows] = useState<SubRow[]>(() => [emptySubRow()]);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
-  const { t, lang } = useI18n();
+  const { lang } = useI18n();
 
   const clearFields = () => {
     setItemName("");
@@ -60,6 +62,7 @@ export default function AddMenuItemForm({
     setUserId("");
     setGuestName("");
     setAssignMode("user");
+    setTopTab("menu");
   };
 
   const switchMode = (m: "normal" | "pack") => {
@@ -71,6 +74,7 @@ export default function AddMenuItemForm({
     setPackPrice("");
     setPackId(crypto.randomUUID());
     setSubRows([emptySubRow()]);
+    setTopTab("menu");
   };
 
   const inputCls =
@@ -105,13 +109,12 @@ export default function AddMenuItemForm({
     return it.guestName ?? "";
   };
 
+  // Save only what's been explicitly staged — the typed-but-unstaged draft is ignored.
   const saveNormal = () => {
-    const d = draft();
-    const all = d ? [...items, d] : items;
-    if (all.length === 0) return;
+    if (items.length === 0) return;
     startTransition(async () => {
       try {
-        await action(all);
+        await action(items);
         setItems([]);
         clearFields();
         setError("");
@@ -121,7 +124,7 @@ export default function AddMenuItemForm({
     });
   };
 
-  const normalCount = items.length + (draft() ? 1 : 0);
+  const normalCount = items.length;
 
   // ---------- pack mode ----------
   const cap = parseFloat(packPrice) || 0;
@@ -236,27 +239,74 @@ export default function AddMenuItemForm({
     </div>
   );
 
+  // Shared across the "add item" and "assign owner" primary tabs.
+  const stagedItems = items.length > 0 && (
+    <div className="space-y-1.5 rounded-xl border border-border bg-background/60 p-2.5">
+      {items.map((it, i) => (
+        <div key={i} className="flex items-center gap-2 text-xs">
+          <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
+            {it.itemName}
+            {it.quantity > 1 && <span className="text-muted"> ×{it.quantity}</span>}
+            {ownerLabel(it) && <span className="text-muted"> · {ownerLabel(it)}</span>}
+          </span>
+          <span className="shrink-0 font-bold text-foreground">{baht(it.price)}</span>
+          <button
+            type="button"
+            onClick={() => removeItem(i)}
+            aria-label="remove"
+            className="shrink-0 text-red-500 hover:text-red-700 px-1"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
+  const normalButtons = (
+    <>
+      <button
+        type="button"
+        onClick={addToList}
+        disabled={!draft()}
+        className="w-full rounded-xl border border-brand bg-brand/5 py-2.5 text-sm font-bold text-brand transition active:scale-[.98] hover:bg-brand/10 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        + {lang === "th" ? "เพิ่มในรายการ" : "Add to list"}
+      </button>
+      <button
+        type="button"
+        onClick={saveNormal}
+        disabled={pending || normalCount === 0}
+        className="w-full rounded-xl bg-brand py-3 text-sm font-bold text-white transition active:scale-[.98] hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {pending
+          ? lang === "th" ? "กำลังบันทึก…" : "Saving…"
+          : `${lang === "th" ? "บันทึก" : "Save"}${normalCount > 0 ? ` (${normalCount})` : ""}`}
+      </button>
+    </>
+  );
+
   return (
-    <div className="mt-3 space-y-3">
-      {/* Normal vs pack mode */}
-      <div className="flex rounded-xl border border-border p-0.5 bg-background text-xs w-full font-bold">
+    <div className="space-y-3">
+      {/* Primary mode — underline tabs in place of the modal's static title. */}
+      <div className="flex gap-5 border-b border-border pr-7">
         <button
           type="button"
-          onClick={() => switchMode("normal")}
-          className={`flex-1 py-2 text-center rounded-lg transition-all ${
-            mode === "normal" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+          onClick={() => setTopTab("menu")}
+          className={`-mb-px border-b-2 pb-2 text-sm font-bold transition-colors ${
+            topTab === "menu" ? "border-brand text-brand" : "border-transparent text-muted"
           }`}
         >
-          {lang === "th" ? "รายการเดี่ยว" : "Single item"}
+          {lang === "th" ? "เพิ่มเมนูใหม่" : "Add item"}
         </button>
         <button
           type="button"
-          onClick={() => switchMode("pack")}
-          className={`flex-1 py-2 text-center rounded-lg transition-all ${
-            mode === "pack" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+          onClick={() => setTopTab("owner")}
+          className={`-mb-px border-b-2 pb-2 text-sm font-bold transition-colors ${
+            topTab === "owner" ? "border-brand text-brand" : "border-transparent text-muted"
           }`}
         >
-          {lang === "th" ? "แพ็ค/โปรโมชั่น" : "Promo pack"}
+          {lang === "th" ? "กำหนดเจ้าของเมนู" : "Assign owner"}
         </button>
       </div>
 
@@ -266,32 +316,44 @@ export default function AddMenuItemForm({
         </div>
       )}
 
+      {topTab === "owner" ? (
+        <>
+          {stagedItems}
+          <div className="space-y-2.5">
+            <span className="block text-xs font-semibold text-muted">
+              {lang === "th" ? "กำหนดเจ้าของเมนู (เพิ่มทีหลังได้)" : "Assign menu owner (optional)"}
+            </span>
+            {ownerPicker(assignMode, userId, guestName, setAssignMode, setUserId, setGuestName)}
+          </div>
+          {normalButtons}
+        </>
+      ) : (
+        <>
+          {/* Single item vs pack */}
+          <div className="flex rounded-xl border border-border p-0.5 bg-background text-xs w-full font-bold">
+            <button
+              type="button"
+              onClick={() => switchMode("normal")}
+              className={`flex-1 py-2 text-center rounded-lg transition-all ${
+                mode === "normal" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+              }`}
+            >
+              {lang === "th" ? "รายการเดี่ยว" : "Single item"}
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("pack")}
+              className={`flex-1 py-2 text-center rounded-lg transition-all ${
+                mode === "pack" ? "bg-white shadow-xs text-brand" : "text-muted font-medium"
+              }`}
+            >
+              {lang === "th" ? "แพ็ค/โปรโมชั่น" : "Promo pack"}
+            </button>
+          </div>
+
       {mode === "normal" ? (
         <>
-          {/* Staged items */}
-          {items.length > 0 && (
-            <div className="space-y-1.5 rounded-xl border border-border bg-background/60 p-2.5">
-              {items.map((it, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate font-semibold text-foreground">
-                    {it.itemName}
-                    {it.quantity > 1 && <span className="text-muted"> ×{it.quantity}</span>}
-                    {ownerLabel(it) && <span className="text-muted"> · {ownerLabel(it)}</span>}
-                  </span>
-                  <span className="shrink-0 font-bold text-foreground">{baht(it.price)}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeItem(i)}
-                    aria-label="remove"
-                    className="shrink-0 text-red-500 hover:text-red-700 px-1"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
+          {stagedItems}
           <input
             value={itemName}
             onChange={(e) => setItemName(e.target.value)}
@@ -333,32 +395,7 @@ export default function AddMenuItemForm({
             onWheel={(e) => e.currentTarget.blur()}
             className={`no-spinner ${inputCls}`}
           />
-
-          <div className="border-t border-dashed border-border pt-3 space-y-2.5">
-            <span className="block text-xs font-semibold text-muted">
-              {lang === "th" ? "กำหนดเจ้าของเมนู (เพิ่มทีหลังได้)" : "Assign menu owner (optional)"}
-            </span>
-            {ownerPicker(assignMode, userId, guestName, setAssignMode, setUserId, setGuestName)}
-          </div>
-
-          <button
-            type="button"
-            onClick={addToList}
-            disabled={!draft()}
-            className="w-full rounded-xl border border-brand bg-brand/5 py-2.5 text-sm font-bold text-brand transition active:scale-[.98] hover:bg-brand/10 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            + {lang === "th" ? "เพิ่มในรายการ" : "Add to list"}
-          </button>
-          <button
-            type="button"
-            onClick={saveNormal}
-            disabled={pending || normalCount === 0}
-            className="w-full rounded-xl bg-brand py-3 text-sm font-bold text-white transition active:scale-[.98] hover:bg-brand/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {pending
-              ? lang === "th" ? "กำลังบันทึก…" : "Saving…"
-              : `${t("bill.addMenu")}${normalCount > 0 ? ` (${normalCount})` : ""}`}
-          </button>
+          {normalButtons}
         </>
       ) : (
         <>
@@ -493,6 +530,8 @@ export default function AddMenuItemForm({
               ? lang === "th" ? "กำลังบันทึก…" : "Saving…"
               : `${lang === "th" ? "สร้างรายการหลัก" : "Create pack"}${validSubs.length > 0 ? ` (${validSubs.length})` : ""}`}
           </button>
+        </>
+      )}
         </>
       )}
     </div>

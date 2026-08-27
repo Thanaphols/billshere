@@ -141,8 +141,8 @@ export default function DiscountSettings({
               onChange={(v) => setType(v as DiscountType)}
               placeholder={lang === "th" ? "เลือกแบบการหาร" : "Select split type"}
               options={[
-                { value: "FIXED", label: lang === "th" ? "หารเท่ากันทุกรายการ" : "Split equally" },
-                { value: "PERCENT", label: lang === "th" ? "หารตามที่สั่ง" : "Pay your own items" },
+                { value: "FIXED", label: lang === "th" ? "หารทั้งบิลตามจำนวนคน" : "Split equally" },
+                { value: "PERCENT", label: lang === "th" ? "หารรายการตามจำนวนคน" : "Pay your own items" },
               ]}
             />
           </label>

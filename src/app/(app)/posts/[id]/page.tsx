@@ -5,6 +5,7 @@ import { promptpayQrDataUrl } from "@/lib/promptpay";
 import { togglePostStatus } from "@/actions/posts";
 import PaySlipPanel from "@/components/PaySlipPanel";
 import ParticipantTable from "@/components/ParticipantTable";
+import ShareBillButton from "@/components/ShareBillButton";
 import EditPostModal from "@/components/EditPostModal";
 import DeletePostButton from "@/components/DeletePostButton";
 import { cookies } from "next/headers";
@@ -124,6 +125,17 @@ export default async function PostDetailPage({
       {isOwner && (
         <>
           <div className="space-y-2">
+            <ShareBillButton
+              postId={post.id}
+              postTitle={post.title}
+              postNote={post.note}
+              ownerName={post.owner.name}
+              ownerQr={ownerQr}
+              ownerPromptpay={post.owner.promptpayNumber}
+              participants={post.participants}
+              deliveryFee={post.deliveryFee}
+              deliveryPersonCount={post.deliveryPersonCount}
+            />
             <form action={togglePostStatus.bind(null, post.id)}>
               <button className="w-full rounded-xl border border-border bg-surface py-2.5 text-sm font-semibold text-foreground hover:bg-muted/10 transition active:scale-[.98]">
                 {post.status === "OPEN" ? t("bill.closeBill", lang) : t("bill.reopenBill", lang)}
