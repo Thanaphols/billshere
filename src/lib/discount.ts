@@ -39,6 +39,14 @@ export function deliverySplit(deliveryFee: number, personCount: number) {
   return { perHead, remainder, ownerShare: round2(perHead + remainder) };
 }
 
+/**
+ * Split the bill discount the same way deliverySplit splits the fee: rounding D/N to
+ * satang leaves D − perHead·N unclaimed (฿25.80 / 7 → ฿3.69 each, ฿0.03 over). One
+ * payer absorbs the remainder so every share re-sums to exactly D — .ownerShare is
+ * that payer's adjusted discount. Identical even-split math, named for intent.
+ */
+export const discountSplit = deliverySplit;
+
 export type BillResult = {
   id: string;
   /** Final amount owed for this row — discount AND delivery already folded in. */
@@ -53,9 +61,10 @@ export type BillResult = {
  * Let Σ = sum of all prices, D = discountValue, S = deliveryFee, N = personCount,
  * ownItems = sum of one payer's rows. Per payer:
  *   FIXED   → (Σ − D)/N + del        (everyone equal, regardless of items)
- *   PERCENT → ownItems − D/N + del   (pay your own items, share discount+delivery)
- * where del = deliverySplit(S, N).perHead, and the owner group pays .ownerShare
- * instead so the rounding remainder is not silently dropped.
+ *   PERCENT → ownItems − disc + del  (pay your own items, share discount+delivery)
+ * where del = deliverySplit(S, N).perHead and disc = discountSplit(D, N).perHead;
+ * for each, the owner group pays .ownerShare instead so neither the delivery nor the
+ * discount rounding remainder is silently dropped (the owner always claims items).
  * Clamped at 0.
  *
  * A payer may own several rows, but amountToPay is stored per row, so each payer's
@@ -75,6 +84,7 @@ export function computeBill(rows: BillRow[], s: BillSettings): BillResult[] {
   const S = Math.max(0, s.deliveryFee);
   const total = rows.reduce((a, r) => a + effPrice(r), 0);
   const delivery = deliverySplit(S, N);
+  const discount = discountSplit(D, N);
 
   // Group rows by ownerKey, preserving first-seen order.
   const groups = new Map<string, BillRow[]>();
@@ -87,19 +97,23 @@ export function computeBill(rows: BillRow[], s: BillSettings): BillResult[] {
   const out = new Map<string, BillResult>();
   for (const g of groups.values()) {
     const ownItems = g.reduce((a, r) => a + effPrice(r), 0);
+    const isOwner = s.ownerKey != null && g[0].ownerKey === s.ownerKey;
     // Everyone pays the rounded per-head delivery; the owner also eats the remainder.
-    const deliveryShare =
-      s.ownerKey != null && g[0].ownerKey === s.ownerKey ? delivery.ownerShare : delivery.perHead;
+    const deliveryShare = isOwner ? delivery.ownerShare : delivery.perHead;
+    // Everyone gets the rounded per-head discount; the owner absorbs the remainder
+    // (gives up that fraction) so the discounts re-sum to exactly D. The owner always
+    // splits — they claim their own items — so the remainder never lands nowhere.
+    const discountShare = isOwner ? discount.ownerShare : discount.perHead;
     // What the payer actually owes — delivery folded in.
     const personTotal = Math.max(
       0,
-      (s.discountType === "FIXED" ? (total - D) / N : ownItems - D / N) + deliveryShare
+      (s.discountType === "FIXED" ? (total - D) / N : ownItems - discountShare) + deliveryShare
     );
     // Same figure WITHOUT delivery — the reference for discountShare, so delivery
     // (an addition) never cancels out the discount shown on a row.
     const personNoDelivery = Math.max(
       0,
-      s.discountType === "FIXED" ? (total - D) / N : ownItems - D / N
+      s.discountType === "FIXED" ? (total - D) / N : ownItems - discountShare
     );
 
     let acc = 0;
@@ -323,6 +337,16 @@ export function demo(): void {
   );
   console.assert(rem[0].amountToPay === 3.34, "owner absorbs remainder", rem);
   console.assert(round2(rem.reduce((a, r) => a + r.amountToPay, 0)) === 10, "delivery re-sums to 10", rem);
+
+  // Bill-discount rounding remainder: ฿25.80 / 7 rounds to ฿3.69 each = ฿25.83; the
+  // absorbing payer gives up ฿0.03 so the seven shares re-sum to exactly ฿25.80.
+  const dsp = discountSplit(25.8, 7);
+  console.assert(dsp.perHead === 3.69 && dsp.remainder === -0.03 && dsp.ownerShare === 3.66, "25.8/7 discount split", dsp);
+  // Owner absorbs it (gives up ฿0.03) so the seven discounts re-sum to exactly D.
+  const seven = Array.from({ length: 7 }, (_, i) => ({ id: "s" + i, price: 10, ownerKey: i === 0 ? "u:owner" : "p" + i }));
+  const sd = computeBill(seven, { discountType: "PERCENT", discountValue: 25.8, deliveryFee: 0, personCount: 7, ownerKey: "u:owner" });
+  console.assert(round2(sd.reduce((a, r) => a + r.discountShare, 0)) === 25.8, "7-way discount re-sums to 25.80", sd);
+  console.assert(sd[0].discountShare === 3.66, "owner takes the ฿0.03 remainder", sd);
 
   // Pagination: a 6-item payer cannot fit a 5-row page, so it spills — both chunks
   // keep the name, the continuation is flagged, and only the tail owes a subtotal.
