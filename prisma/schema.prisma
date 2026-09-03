@@ -38,6 +38,21 @@ model User {
 
   ownedPosts   Post[]        @relation("PostOwner")
   participations Participant[]
+  refreshTokens RefreshToken[]
+}
+
+// Long-lived refresh tokens, one row per logged-in device. Only a SHA-256 hash
+// of the opaque token is stored; the raw value lives in the client cookie. The
+// proxy trades a valid refresh token for a fresh short-lived access JWT.
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Post {

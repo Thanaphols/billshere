@@ -4,10 +4,17 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import {
   SESSION_COOKIE,
+  sessionCookieOptions,
   signSession,
   verifySession,
   type SessionPayload,
 } from "@/lib/jwt";
+import {
+  REFRESH_COOKIE,
+  issueRefreshToken,
+  refreshCookieOptions,
+  revokeRefreshToken,
+} from "@/lib/refresh";
 
 export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, 10);
@@ -20,22 +27,20 @@ export async function verifyPassword(
   return bcrypt.compare(plain, hash);
 }
 
-/** Sign a session token and store it as an httpOnly cookie. */
+/** Sign an access token + issue a refresh token, both as httpOnly cookies. */
 export async function startSession(payload: SessionPayload): Promise<void> {
   const token = await signSession(payload);
+  const refresh = await issueRefreshToken(payload.userId);
   const store = await cookies();
-  store.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+  store.set(SESSION_COOKIE, token, sessionCookieOptions());
+  store.set(REFRESH_COOKIE, refresh, refreshCookieOptions());
 }
 
 export async function clearSession(): Promise<void> {
   const store = await cookies();
+  await revokeRefreshToken(store.get(REFRESH_COOKIE)?.value);
   store.delete(SESSION_COOKIE);
+  store.delete(REFRESH_COOKIE);
 }
 
 /** Read + verify the current session from the cookie. */

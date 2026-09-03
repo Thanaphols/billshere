@@ -852,7 +852,9 @@ export default function ParticipantTable({
                       );
                     })}
                     {groupByPayer(singles).map((g, gi) => {
-                      const subtotal = g.items.reduce((s, p) => s + p.price, 0);
+                      // After-discount, to match the per-item rows above (which show
+                      // price − discountShare). Delivery stays a bill-level footer line.
+                      const subtotal = round2(g.items.reduce((s, p) => s + (p.price - p.discountShare), 0));
                       return (
                         <React.Fragment key={"payer:" + gi}>
                           {g.kind !== "unassigned" && (

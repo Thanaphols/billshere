@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySession } from "@/lib/jwt";
+import {
+  SESSION_COOKIE,
+  sessionCookieOptions,
+  signSession,
+  verifySession,
+} from "@/lib/jwt";
+import { REFRESH_COOKIE, useRefreshToken } from "@/lib/refresh";
 
 // Public paths that never require a session.
 const PUBLIC_PREFIXES = ["/login", "/register", "/api/health", "/share"];
@@ -16,7 +22,22 @@ export async function proxy(req: NextRequest) {
     PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
     isPublicStream(pathname);
 
-  const session = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
+  let session = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
+
+  // Access token expired/absent but a refresh token is present → trade it for a
+  // fresh access JWT so an active same-device user never has to log in again.
+  // Proxy runs on the Node.js runtime, so the DB lookup here is fine.
+  let refreshedToken: string | null = null;
+  if (!session) {
+    const refreshed = await useRefreshToken(req.cookies.get(REFRESH_COOKIE)?.value);
+    if (refreshed) {
+      session = { userId: refreshed.userId, name: refreshed.name };
+      refreshedToken = await signSession(session);
+      // Forward the new token downstream so server components see a live session
+      // on this very request, not just the next one.
+      req.cookies.set(SESSION_COOKIE, refreshedToken);
+    }
+  }
 
   // Not logged in and hitting a protected page → send to /login.
   if (!isPublic && !session) {
@@ -31,7 +52,13 @@ export async function proxy(req: NextRequest) {
   // in the DB. An orphaned-but-valid token (e.g. after a DB reseed) would make
   // /login → / (middleware) and / → /login (layout guard) bounce forever. Letting
   // /login always render breaks the loop; a fresh login just overwrites the cookie.
-  return NextResponse.next();
+  const res = refreshedToken
+    ? NextResponse.next({ request: { headers: req.headers } })
+    : NextResponse.next();
+  if (refreshedToken) {
+    res.cookies.set(SESSION_COOKIE, refreshedToken, sessionCookieOptions());
+  }
+  return res;
 }
 
 export const config = {
