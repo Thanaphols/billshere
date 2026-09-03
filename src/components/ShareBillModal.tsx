@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
-import { deliverySplit, groupByPayer, paginateGroups } from "@/lib/discount";
+import { deliverySplit, groupByPayer, paginateGroups, round2 } from "@/lib/discount";
 import { getOrCreateShareLink } from "@/actions/posts";
 
 type UserOption = {
@@ -144,9 +144,10 @@ export default function ShareBillModal({
         const groups = groupByPayer(participants).map((g) => ({
           ...g,
           lines: g.items.map((p) => wrapText(p.itemName, nameMaxWidth, "bold 14px sans-serif")),
-          // After-discount, matching the per-item lines (price − discountShare).
-          // Delivery is a bill-level line in the summary page, not folded per group.
-          subtotal: g.items.reduce((s, p) => s + (p.price - p.discountShare), 0),
+          // The actual amount owed (discount AND delivery folded in), so the page-1
+          // group totals sum to the grand total on page 2. Each item's price line
+          // spells out the discount + delivery that get it there.
+          subtotal: g.items.reduce((s, p) => s + p.amountToPay, 0),
         }));
 
         // Bill-wide figures + the per-item discount lines (only items that got a discount).
@@ -242,18 +243,17 @@ export default function ShareBillModal({
                 y += nameLineH;
               });
               y += 2;
-              const net = (p.price - p.discountShare).toFixed(2);
-              // Discount is netted right here on the item's price line — no separate summary.
-              at(
-                p.discountShare > 0
-                  ? perItem
-                    ? `฿${p.price.toFixed(2)} ${lang === "th" ? "ลด" : "-"} ฿${p.discountShare.toFixed(2)}`
-                    : `฿${p.price.toFixed(2)} ${lang === "th" ? "ลด" : "-"} ฿${p.discountShare.toFixed(2)} = ฿${net}`
-                  : `฿${p.price.toFixed(2)}`,
-                42, "left", "11px sans-serif", "#9ca3af"
-              );
+              // Net owed = amountToPay (discount AND delivery already folded in). Spell
+              // both out on the price line: "฿price ลด ฿disc + ค่าส่ง ฿deliv = ฿net".
+              const deliv = round2(p.amountToPay - (p.price - p.discountShare));
+              let bd = `฿${p.price.toFixed(2)}`;
+              if (p.discountShare > 0) bd += ` ${lang === "th" ? "ลด" : "-"} ฿${p.discountShare.toFixed(2)}`;
+              if (deliv > 0) bd += ` ${lang === "th" ? "+ ค่าส่ง" : "+ delivery"} ฿${deliv.toFixed(2)}`;
+              // Unassigned rows show their net in the right column, so no trailing "= net".
+              if ((p.discountShare > 0 || deliv > 0) && !perItem) bd += ` = ฿${p.amountToPay.toFixed(2)}`;
+              at(bd, 42, "left", "11px sans-serif", "#9ca3af");
               // Per-item net on the right for unassigned (no group subtotal follows).
-              if (perItem) R(`฿${net}`, "bold 12px sans-serif", "#16a34a");
+              if (perItem) R(`฿${p.amountToPay.toFixed(2)}`, "bold 12px sans-serif", "#16a34a");
               y += 14;                        // price line
               y += 12;                        // gap after item (also last item → band top)
             });
