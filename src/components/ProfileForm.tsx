@@ -3,6 +3,7 @@
 import { useActionState, useEffect } from "react";
 import { updateProfile, type ProfileState } from "@/actions/profile";
 import SubmitButton from "@/components/SubmitButton";
+import { useToast } from "@/components/Toast";
 
 export default function ProfileForm({
   name,
@@ -17,15 +18,19 @@ export default function ProfileForm({
     updateProfile,
     undefined
   );
+  const toast = useToast();
 
   useEffect(() => {
-    if (state?.ok && onSuccess) {
-      const timer = setTimeout(() => {
-        onSuccess();
-      }, 800);
-      return () => clearTimeout(timer);
+    if (state?.ok) {
+      toast("บันทึกแล้ว");
+      if (onSuccess) {
+        const timer = setTimeout(() => {
+          onSuccess();
+        }, 800);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [state?.ok, onSuccess]);
+  }, [state?.ok, onSuccess, toast]);
 
   return (
     <form action={formAction} className="space-y-4">

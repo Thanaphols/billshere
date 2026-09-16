@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { baht } from "@/lib/format";
 import { useI18n } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
 import Dropdown from "@/components/Dropdown";
 import type { NewMenuItem } from "@/actions/posts";
 
@@ -53,6 +54,7 @@ export default function AddMenuItemForm({
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
   const { lang } = useI18n();
+  const toast = useToast();
 
   const clearFields = () => {
     setItemName("");
@@ -99,6 +101,7 @@ export default function AddMenuItemForm({
     if (!d) return;
     setItems((prev) => [...prev, d]);
     clearFields();
+    toast(lang === "th" ? `เพิ่ม "${d.itemName}" ในรายการ` : `Added "${d.itemName}" to list`, "info");
   };
 
   const removeItem = (i: number) =>

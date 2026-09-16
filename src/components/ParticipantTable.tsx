@@ -13,6 +13,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import DiscountSettings from "@/components/DiscountSettings";
 import Dropdown from "@/components/Dropdown";
 import { useI18n } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
 import {
   addMenuItems,
   editMenuItem,
@@ -118,6 +119,9 @@ export default function ParticipantTable({
     });
   const activeFilterCount = statusFilters.size + claimFilters.size;
   const { t, lang } = useI18n();
+  const toast = useToast();
+  const savedMsg = lang === "th" ? "บันทึกแล้ว" : "Saved";
+  const failMsg = lang === "th" ? "บันทึกไม่สำเร็จ" : "Save failed";
 
   // Non-owner self-claim: tick your items, then confirm (batch sync).
   const claimCol = !isOwner && postStatus === "OPEN";
@@ -287,6 +291,7 @@ export default function ParticipantTable({
               action={async (fd) => {
                 await updatePostSettings(postId, fd);
                 setShowSettings(false);
+                toast(savedMsg);
               }}
               rows={participants.map((p) => ({ id: p.id, price: p.price, discount: p.itemDiscount, ownerKey: ownerKeyOf(p) }))}
               defaultType={discountType}
@@ -314,6 +319,7 @@ export default function ParticipantTable({
             action={async (items) => {
               await addMenuItems(postId, items);
               setShowAddForm(false);
+              toast(savedMsg);
             }}
             allUsers={allUsers}
           />
@@ -597,6 +603,7 @@ export default function ParticipantTable({
                                     try {
                                       await editMenuItem(p.id, fd);
                                       setEditError("");
+                                      toast(savedMsg);
                                     } catch {
                                       setEditError(
                                         p.packName
@@ -607,6 +614,7 @@ export default function ParticipantTable({
                                             ? "บันทึกไม่สำเร็จ"
                                             : "Save failed"
                                       );
+                                      toast(failMsg, "error");
                                     }
                                   }}
                                   onClick={(e) => e.stopPropagation()}
@@ -688,6 +696,7 @@ export default function ParticipantTable({
                                   <form
                                     action={async (fd) => {
                                       await assignParticipantUser(p.id, fd);
+                                      toast(savedMsg);
                                     }}
                                     className="space-y-2"
                                     onClick={(e) => e.stopPropagation()} // Prevent closing row
@@ -763,6 +772,7 @@ export default function ParticipantTable({
                                     <form
                                       action={async () => {
                                         await markPaid(p.id);
+                                        toast(lang === "th" ? "ทำเครื่องหมายจ่ายแล้ว" : "Marked as paid");
                                       }}
                                     >
                                       <button className="rounded-xl bg-brand text-white px-3.5 py-2.5 text-xs font-bold hover:bg-brand/90 transition active:scale-[.98]">
@@ -773,6 +783,7 @@ export default function ParticipantTable({
                                     <form
                                       action={async () => {
                                         await markUnpaid(p.id);
+                                        toast(lang === "th" ? "ยกเลิกการจ่ายแล้ว" : "Marked as unpaid");
                                       }}
                                     >
                                       <button className="rounded-xl bg-amber-600 text-white px-3.5 py-2.5 text-xs font-bold hover:bg-amber-700 transition active:scale-[.98] inline-flex items-center gap-1.5">
@@ -1018,6 +1029,7 @@ export default function ParticipantTable({
           if (itemToDelete) {
             await removeParticipant(itemToDelete.id);
             setItemToDelete(null);
+            toast(lang === "th" ? "ลบรายการแล้ว" : "Item deleted");
           }
         }}
         onClose={() => setItemToDelete(null)}
@@ -1036,6 +1048,7 @@ export default function ParticipantTable({
           if (slipToDelete) {
             await deleteSlip(slipToDelete.id);
             setSlipToDelete(null);
+            toast(lang === "th" ? "ลบสลิปแล้ว" : "Slip deleted");
           }
         }}
         onClose={() => setSlipToDelete(null)}

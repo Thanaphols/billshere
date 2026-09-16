@@ -76,7 +76,7 @@ export async function createPost(formData: FormData): Promise<void> {
     data: { ownerId: user.id, title, note },
   });
   notifyFeed();
-  redirect(`/posts/${post.id}`);
+  redirect(`/posts/${post.id}?created=1`);
 }
 
 /** Save title/note/discount/delivery fee together and recompute everyone's amount. */

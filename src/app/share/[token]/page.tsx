@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { promptpayQrDataUrl } from "@/lib/promptpay";
 import { I18nProvider } from "@/lib/i18n";
+import { ToastProvider } from "@/components/Toast";
 import GuestBillView from "@/components/GuestBillView";
 
 export default async function GuestSharePage({
@@ -36,6 +37,7 @@ export default async function GuestSharePage({
 
   return (
     <I18nProvider lang="th">
+      <ToastProvider>
       <div className="app-shell bg-background">
         <GuestBillView
           postId={post.id}
@@ -50,6 +52,7 @@ export default async function GuestSharePage({
           myAmount={myAmount}
         />
       </div>
+      </ToastProvider>
     </I18nProvider>
   );
 }

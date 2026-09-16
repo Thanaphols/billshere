@@ -6,6 +6,7 @@ import { baht, paymentLabel } from "@/lib/format";
 import { syncGuestClaims, uploadSlipAsGuest } from "@/actions/guest";
 import type { SlipState } from "@/actions/slips";
 import QrView from "@/components/QrView";
+import { useToast } from "@/components/Toast";
 
 type ParticipantRow = {
   id: string;
@@ -66,6 +67,7 @@ export default function GuestBillView({
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
 
   // Resync selection + name with server truth after refresh / confirm.
   useEffect(() => {
@@ -102,6 +104,7 @@ export default function GuestBillView({
     setClaimPending(true);
     try {
       await syncGuestClaims(shareToken, [...selected], name.trim());
+      toast("บันทึกแล้ว");
     } catch {
       // SSE refresh resyncs state either way.
     } finally {
@@ -126,7 +129,10 @@ export default function GuestBillView({
   };
 
   useEffect(() => {
-    if (state?.ok) closeUpload();
+    if (state?.ok) {
+      closeUpload();
+      toast("อัปโหลดสลิปแล้ว");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 

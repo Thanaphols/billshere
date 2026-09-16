@@ -4,6 +4,7 @@ import { useState } from "react";
 import { updatePostTitleNote } from "@/actions/posts";
 import SubmitButton from "@/components/SubmitButton";
 import { useI18n } from "@/lib/i18n";
+import { useToast } from "@/components/Toast";
 
 export default function EditPostModal({
   postId,
@@ -16,10 +17,12 @@ export default function EditPostModal({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const { t, lang } = useI18n();
+  const toast = useToast();
 
   const handleSubmit = async (formData: FormData) => {
     await updatePostTitleNote(postId, formData);
     setIsOpen(false);
+    toast(lang === "th" ? "บันทึกแล้ว" : "Saved");
   };
 
   return (

@@ -8,6 +8,7 @@ import ParticipantTable from "@/components/ParticipantTable";
 import ShareBillButton from "@/components/ShareBillButton";
 import EditPostModal from "@/components/EditPostModal";
 import DeletePostButton from "@/components/DeletePostButton";
+import CreatedToast from "@/components/CreatedToast";
 import { cookies } from "next/headers";
 import { t } from "@/lib/i18n-dict";
 
@@ -57,6 +58,7 @@ export default async function PostDetailPage({
 
   return (
     <div className="space-y-5">
+      <CreatedToast />
       {/* Header */}
       <div className="rounded-2xl bg-surface p-4 shadow-sm">
         <div className="flex items-start justify-between gap-2">

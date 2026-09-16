@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 import BottomNav from "@/components/BottomNav";
 import { I18nProvider } from "@/lib/i18n";
+import { ToastProvider } from "@/components/Toast";
 import HeaderSettings from "@/components/HeaderSettings";
 
 export default async function AppLayout({
@@ -20,6 +21,7 @@ export default async function AppLayout({
 
   return (
     <I18nProvider lang={lang as any}>
+      <ToastProvider>
       <div className="app-shell flex flex-col" data-theme={theme}>
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface px-4 py-3">
           <div className="flex items-center gap-2">
@@ -40,6 +42,7 @@ export default async function AppLayout({
 
         <BottomNav />
       </div>
+      </ToastProvider>
     </I18nProvider>
   );
 }
