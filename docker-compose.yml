@@ -29,7 +29,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-please-32chars-min}
       UPLOAD_DIR: /app/uploads
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     volumes:
       - uploads:/app/uploads
 
