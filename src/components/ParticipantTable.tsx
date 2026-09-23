@@ -63,6 +63,7 @@ export default function ParticipantTable({
   ownerQr,
   ownerName,
   ownerPromptpay,
+  ownerQrs,
   postTitle,
   postNote,
 }: {
@@ -79,6 +80,7 @@ export default function ParticipantTable({
   ownerQr: string | null;
   ownerName: string;
   ownerPromptpay: string | null;
+  ownerQrs: { number: string; qr: string }[];
   postTitle: string;
   postNote: string | null;
 }) {
@@ -299,6 +301,8 @@ export default function ParticipantTable({
               defaultDeliveryFee={deliveryFee}
               defaultDeliveryPersonCount={deliveryPersonCount}
               ownerKey={"u:" + currentUserId}
+              promptpayQrs={ownerQrs}
+              defaultPromptpay={ownerPromptpay}
             />
           </div>
         </div>,

@@ -12,19 +12,21 @@ export async function updateProfile(
 ): Promise<ProfileState> {
   const user = await requireUser();
   const name = (formData.get("name") ?? "").toString().trim();
-  const promptpayNumber = (formData.get("promptpayNumber") ?? "")
-    .toString()
-    .replace(/[\s-]/g, "")
-    .trim();
+  const clean = (v: FormDataEntryValue) => v.toString().replace(/[\s-]/g, "");
+  const numbers = formData.getAll("promptpayNumbers").map(clean);
+  const mainIdx = Number(formData.get("promptpayMain")) || 0;
+  // Chosen main, or the first filled-in number if the chosen row is blank.
+  const promptpayNumber = numbers[mainIdx] || numbers.find(Boolean) || "";
+  const extras = [...new Set(numbers.filter(Boolean))].filter((n) => n !== promptpayNumber);
 
   if (!name) return { error: "กรุณากรอกชื่อ" };
-  if (promptpayNumber && !/^\d{10}$|^\d{13}$/.test(promptpayNumber)) {
+  if ([promptpayNumber, ...extras].some((n) => n && !/^\d{10}$|^\d{13}$/.test(n))) {
     return { error: "PromptPay ต้องเป็นเบอร์ 10 หลัก หรือเลขบัตร 13 หลัก" };
   }
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { name, promptpayNumber: promptpayNumber || null },
+    data: { name, promptpayNumber: promptpayNumber || null, promptpayExtras: extras },
   });
 
   revalidatePath("/profile");

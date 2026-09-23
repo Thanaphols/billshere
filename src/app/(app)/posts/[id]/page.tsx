@@ -34,6 +34,7 @@ export default async function PostDetailPage({
   if (!post || post.deletedAt) notFound();
 
   const isOwner = post.ownerId === user.id;
+  const promptpay = post.promptpayNumber ?? post.owner.promptpayNumber;
   const myParticipants = post.participants.filter((p) => p.userId === user.id);
   const myAmount = myParticipants.reduce((s, p) => s + p.amountToPay, 0);
   const paidCount = post.participants.filter(
@@ -42,15 +43,24 @@ export default async function PostDetailPage({
 
   // QR for the current user to pay the post owner, sized to everything owed across all their rows.
   let myQr: string | null = null;
-  if (myAmount > 0 && post.owner.promptpayNumber) {
-    myQr = await promptpayQrDataUrl(post.owner.promptpayNumber, myAmount);
+  if (myAmount > 0 && promptpay) {
+    myQr = await promptpayQrDataUrl(promptpay, myAmount);
   }
 
   // Generic QR for the owner to receive payment (with no preset amount) for sharing.
   let ownerQr: string | null = null;
-  if (post.owner.promptpayNumber) {
-    ownerQr = await promptpayQrDataUrl(post.owner.promptpayNumber);
+  if (promptpay) {
+    ownerQr = await promptpayQrDataUrl(promptpay);
   }
+
+  // Owner-only: preview QR per number for the payment-method picker (main first).
+  const ownerQrs = isOwner
+    ? await Promise.all(
+        [post.owner.promptpayNumber, ...post.owner.promptpayExtras]
+          .filter((n): n is string => !!n)
+          .map(async (number) => ({ number, qr: await promptpayQrDataUrl(number) }))
+      )
+    : [];
 
   const allUsers = isOwner
     ? await prisma.user.findMany({ orderBy: { name: "asc" } })
@@ -118,7 +128,8 @@ export default async function PostDetailPage({
         discountValue={post.discountValue}
         ownerQr={ownerQr}
         ownerName={post.owner.name}
-        ownerPromptpay={post.owner.promptpayNumber}
+        ownerPromptpay={promptpay}
+        ownerQrs={ownerQrs}
         postTitle={post.title}
         postNote={post.note}
       />
@@ -133,7 +144,7 @@ export default async function PostDetailPage({
               postNote={post.note}
               ownerName={post.owner.name}
               ownerQr={ownerQr}
-              ownerPromptpay={post.owner.promptpayNumber}
+              ownerPromptpay={promptpay}
               participants={post.participants}
               deliveryFee={post.deliveryFee}
               deliveryPersonCount={post.deliveryPersonCount}

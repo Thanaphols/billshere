@@ -4,17 +4,36 @@ import React, { useState } from "react";
 import Link from "next/link";
 import ProfileForm from "@/components/ProfileForm";
 import { logoutAction } from "@/actions/auth";
+import { generateLoginQr } from "@/actions/qrLogin";
 import { useI18n } from "@/lib/i18n";
+import Dropdown from "@/components/Dropdown";
 
 export default function ProfileView({
   user,
-  qr,
+  qrs,
 }: {
-  user: { name: string; email: string; promptpayNumber: string | null };
-  qr: string | null;
+  user: { name: string; email: string; promptpayNumber: string | null; promptpayExtras: string[] };
+  qrs: { number: string; qr: string }[];
 }) {
+  const [picked, setQrNumber] = useState("");
+  // Fall back to the first number if the picked one was removed.
+  const current = qrs.find((q) => q.number === picked) ?? qrs[0];
+  const qrNumber = current?.number ?? "";
+  const qr = current?.qr ?? null;
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [loginQr, setLoginQr] = useState<string | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
   const { t, lang } = useI18n();
+
+  async function showLoginQr() {
+    setQrLoading(true);
+    try {
+      const { qr } = await generateLoginQr();
+      setLoginQr(qr);
+    } finally {
+      setQrLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -52,6 +71,12 @@ export default function ProfileView({
               </span>
             )}
           </div>
+          {user.promptpayExtras.map((n) => (
+            <div key={n} className="flex justify-between items-center py-0.5">
+              <span className="text-muted">{lang === "th" ? "เบอร์เพิ่มเติม" : "Extra number"}</span>
+              <span className="font-semibold text-foreground">{n}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -59,6 +84,16 @@ export default function ProfileView({
       {user.promptpayNumber && qr ? (
         <div className="rounded-2xl bg-surface p-4 shadow-sm">
           <h3 className="mb-3 font-semibold text-sm">{t("bill.totalAmount")} (QR)</h3>
+          {qrs.length > 1 && (
+            <div className="mb-3">
+              <Dropdown
+                value={qrNumber}
+                onChange={setQrNumber}
+                options={qrs.map((q) => ({ value: q.number, label: q.number }))}
+                placeholder="PromptPay"
+              />
+            </div>
+          )}
           <div className="flex justify-center bg-white p-4 rounded-xl border border-border">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={qr} alt="My PromptPay QR" width={220} height={220} />
@@ -102,6 +137,54 @@ export default function ProfileView({
           </div>
         </div>
       )}
+
+      {/* Mobile login QR */}
+      <div className="rounded-2xl bg-surface p-4 shadow-sm space-y-3">
+        <div>
+          <h3 className="font-semibold text-sm flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-4 h-4 text-brand">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 0 0 6 3.75v16.5a2.25 2.25 0 0 0 2.25 2.25h7.5A2.25 2.25 0 0 0 18 20.25V3.75a2.25 2.25 0 0 0-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+            </svg>
+            {lang === "th" ? "เข้าสู่ระบบบนมือถือ" : "Sign in on mobile"}
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            {lang === "th"
+              ? "สแกน QR นี้ด้วยมือถือเพื่อเข้าสู่ระบบบัญชีเดียวกัน"
+              : "Scan this QR with your phone to sign in to the same account."}
+          </p>
+        </div>
+
+        {loginQr ? (
+          <div className="flex flex-col items-center space-y-2">
+            <div className="flex justify-center bg-white p-4 rounded-xl border border-border">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={loginQr} alt="Login QR" width={220} height={220} />
+            </div>
+            <p className="text-center text-xs text-amber-600 font-semibold">
+              {lang === "th"
+                ? "หมดอายุใน 5 นาที · อย่าแชร์ให้คนอื่น"
+                : "Expires in 5 min · don't share with anyone"}
+            </p>
+            <button
+              onClick={showLoginQr}
+              disabled={qrLoading}
+              className="text-xs font-bold text-brand hover:underline disabled:opacity-50"
+            >
+              {lang === "th" ? "สร้าง QR ใหม่" : "Generate new QR"}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={showLoginQr}
+            disabled={qrLoading}
+            className="w-full rounded-xl border border-brand/20 bg-brand/5 py-2.5 text-xs font-bold text-brand hover:bg-brand/10 transition active:scale-[.98] disabled:opacity-50"
+          >
+            {qrLoading
+              ? lang === "th" ? "กำลังสร้าง…" : "Generating…"
+              : lang === "th" ? "แสดง QR เข้าสู่ระบบ" : "Show login QR"}
+          </button>
+        )}
+      </div>
 
       {/* Bin link */}
       <Link
@@ -147,6 +230,7 @@ export default function ProfileView({
             <ProfileForm
               name={user.name}
               promptpayNumber={user.promptpayNumber ?? ""}
+              promptpayExtras={user.promptpayExtras}
               onSuccess={() => setIsEditOpen(false)}
             />
           </div>

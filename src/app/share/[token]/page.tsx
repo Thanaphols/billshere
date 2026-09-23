@@ -31,8 +31,9 @@ export default async function GuestSharePage({
   const myAmount = myParticipants.reduce((s, p) => s + p.amountToPay, 0);
 
   let myQr: string | null = null;
-  if (myAmount > 0 && post.owner.promptpayNumber) {
-    myQr = await promptpayQrDataUrl(post.owner.promptpayNumber, myAmount);
+  const promptpay = post.promptpayNumber ?? post.owner.promptpayNumber;
+  if (myAmount > 0 && promptpay) {
+    myQr = await promptpayQrDataUrl(promptpay, myAmount);
   }
 
   return (

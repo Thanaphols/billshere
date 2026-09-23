@@ -8,7 +8,7 @@ import {
 import { REFRESH_COOKIE, useRefreshToken } from "@/lib/refresh";
 
 // Public paths that never require a session.
-const PUBLIC_PREFIXES = ["/login", "/register", "/api/health", "/share"];
+const PUBLIC_PREFIXES = ["/login", "/register", "/api/health", "/share", "/qr-login"];
 
 // The SSE endpoint just pings "update" with no bill data — safe to expose so
 // the public /share guest page can live-refresh like the logged-in page does.

@@ -56,3 +56,40 @@ export async function verifySession(
     return null;
   }
 }
+
+// QR login: a short-lived, single-purpose token embedded in a QR the logged-in
+// user shows on one device and scans on another to sign that device in. Signed
+// with the same secret but carries a distinct `purpose` so it can never be used
+// as an access token, and vice-versa.
+const QR_LOGIN_TTL = "5m";
+
+export async function signQrLoginToken(payload: SessionPayload): Promise<string> {
+  return new SignJWT({ ...payload, purpose: "qr-login" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(QR_LOGIN_TTL)
+    .sign(secret());
+}
+
+export async function verifyQrLoginToken(
+  token: string | undefined
+): Promise<SessionPayload | null> {
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    if (
+      payload.purpose === "qr-login" &&
+      typeof payload.userId === "string" &&
+      typeof payload.name === "string"
+    ) {
+      return { userId: payload.userId, name: payload.name };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ponytail: token is replayable until it expires (5m) — no single-use tracking,
+// which would need a DB row. Fine for an internal tool; add a used-jti table if
+// this ever needs one-shot QR codes.

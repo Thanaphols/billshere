@@ -16,6 +16,8 @@ export default function DiscountSettings({
   defaultDeliveryFee = 0,
   defaultDeliveryPersonCount = 1,
   ownerKey,
+  promptpayQrs = [],
+  defaultPromptpay,
 }: {
   action: (formData: FormData) => void;
   /** Current bill rows, for the live preview (price + payer grouping). */
@@ -26,7 +28,14 @@ export default function DiscountSettings({
   defaultDeliveryPersonCount?: number;
   /** ownerKey of the bill owner — absorbs the delivery rounding remainder. */
   ownerKey?: string;
+  /** Owner's PromptPay numbers (main first) with a preview QR each. */
+  promptpayQrs?: { number: string; qr: string }[];
+  defaultPromptpay?: string | null;
 }) {
+  const [promptpay, setPromptpay] = useState(defaultPromptpay ?? "");
+  // Both tabs live in one form (hidden, not unmounted) so one submit saves everything.
+  const [tab, setTab] = useState<"split" | "payment">("split");
+  const pp = promptpayQrs.find((q) => q.number === promptpay) ?? promptpayQrs[0];
   // Legacy NONE behaves as PERCENT (pay your own items).
   const [type, setType] = useState<DiscountType>(defaultType === "NONE" ? "PERCENT" : defaultType);
   const [discount, setDiscount] = useState<number | "">(defaultValue);
@@ -60,9 +69,30 @@ export default function DiscountSettings({
   return (
     <form action={action} className="rounded-2xl bg-surface p-4 shadow-sm space-y-3">
       <h3 className="font-semibold text-sm text-foreground">
-        {lang === "th" ? "ตั้งค่าการหารและค่าส่ง" : "Split & Delivery Settings"}
+        {lang === "th" ? "ตั้งค่าบิล" : "Bill Settings"}
       </h3>
 
+      <div className="mr-8 flex rounded-xl bg-muted/15 p-1 text-xs font-semibold">
+        {([
+          ["split", lang === "th" ? "ส่วนลด / ค่าส่ง" : "Discount / Delivery"],
+          ["payment", lang === "th" ? "ช่องทางชำระเงิน" : "Payment"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className={`flex-1 rounded-lg py-1.5 transition ${
+              tab === key ? "bg-white text-brand shadow-xs" : "text-muted hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Both tabs share one grid cell so the card keeps the taller tab's height. */}
+      <div className="grid">
+      <div className={`space-y-3 [grid-area:1/1] ${tab === "split" ? "" : "invisible"}`}>
       {/* 1. Discount (baht) + 2. Delivery (baht) */}
       <div className="flex items-end gap-2">
         <div className="flex-1">
@@ -192,8 +222,51 @@ export default function DiscountSettings({
         </div>
       )}
 
+      </div>
+
+      <div className={`flex flex-col [grid-area:1/1] ${tab === "payment" ? "" : "invisible"}`}>
+      {/* Payment method: which PromptPay this bill's QR + share slip use */}
+      {pp ? (
+        <div className="flex flex-1 flex-col gap-2">
+          <span className="block text-xs font-semibold text-muted">
+            {lang === "th" ? "ช่องทางชำระเงิน (PromptPay)" : "Payment method (PromptPay)"}
+          </span>
+          {promptpayQrs.length > 1 ? (
+            <Dropdown
+              name="promptpayNumber"
+              value={pp.number}
+              onChange={setPromptpay}
+              placeholder="PromptPay"
+              options={promptpayQrs.map((q, i) => ({
+                value: q.number,
+                label: i === 0 ? `${q.number} (${lang === "th" ? "หลัก" : "main"})` : q.number,
+              }))}
+            />
+          ) : (
+            <p className="text-xs font-semibold text-foreground">{pp.number}</p>
+          )}
+          {/* QR fills the leftover height; absolute so it never stretches the card itself. */}
+          <div className="relative min-h-[140px] flex-1 rounded-xl border border-border bg-white">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pp.qr} alt="PromptPay QR" className="absolute inset-0 m-auto h-full max-w-full object-contain p-3" />
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs font-semibold text-amber-600">
+          {lang === "th"
+            ? "ยังไม่มีเบอร์ PromptPay — เพิ่มได้ที่หน้าโปรไฟล์"
+            : "No PromptPay number yet — add one in your profile."}
+        </p>
+      )}
+      </div>
+      </div>
+
       <div className="pt-1">
-        <SubmitButton disabled={overDiscount}>{lang === "th" ? "คำนวณราคา" : "Calculate Split"}</SubmitButton>
+        <SubmitButton disabled={overDiscount}>
+          {tab === "payment"
+            ? lang === "th" ? "บันทึก" : "Save"
+            : lang === "th" ? "คำนวณราคา" : "Calculate Split"}
+        </SubmitButton>
       </div>
     </form>
   );

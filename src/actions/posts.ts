@@ -105,6 +105,12 @@ export async function updatePostSettings(
   if (formData.has("note")) {
     updateData.note = str(formData, "note") || null;
   }
+  if (formData.has("promptpayNumber")) {
+    // Only the owner's extra numbers are stored; main (or anything else) = null = follow main.
+    const user = await requireUser();
+    const picked = str(formData, "promptpayNumber");
+    updateData.promptpayNumber = user.promptpayExtras.includes(picked) ? picked : null;
+  }
 
   await prisma.post.update({
     where: { id: postId },

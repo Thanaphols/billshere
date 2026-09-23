@@ -34,6 +34,8 @@ model User {
   passwordHash    String
   // PromptPay target (phone number or national ID) used to build the QR.
   promptpayNumber String?
+  // Extra PromptPay targets the owner can pick per bill (main one stays above).
+  promptpayExtras String[] @default([])
   createdAt       DateTime @default(now())
 
   ownedPosts   Post[]        @relation("PostOwner")
@@ -75,6 +77,8 @@ model Post {
   // Soft delete: non-null means the bill is in the owner's bin, hidden from all
   // active views but restorable. Null = active.
   deletedAt    DateTime?
+  // PromptPay target chosen for this bill. Null = owner's main promptpayNumber.
+  promptpayNumber String?
 
   participants Participant[]
 
